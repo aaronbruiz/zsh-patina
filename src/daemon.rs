@@ -36,28 +36,80 @@ fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> R
     let mut reader = BufReader::new(&stream);
 
     // read number of lines
-    let mut count = String::new();
+    let mut header = String::new();
     reader
-        .read_line(&mut count)
-        .context("Unable to read line count")?;
-    let count = count
-        .trim_ascii()
+        .read_line(&mut header)
+        .context("Unable to read header")?;
+    let mut parts = header.split_ascii_whitespace();
+    let terminal_columns = parts
+        .next()
+        .context("Unable to get number of terminal columns from header")?
         .parse::<usize>()
-        .context("Unable to parse line count")?;
+        .context("Unable to parse number of terminal columns")?;
+    let terminal_lines = parts
+        .next()
+        .context("Unable to get number of terminal lines from header")?
+        .parse::<usize>()
+        .context("Unable to parse number of terminal lines")?;
+    let cursor = parts
+        .next()
+        .context("Unable to get cursor position from header")?
+        .parse::<usize>()
+        .context("Unable to parse cursor position")?;
+    let line_count = parts
+        .next()
+        .context("Unable to get number of lines from header")?
+        .parse::<usize>()
+        .context("Unable to parse number of lines")?;
 
     // read lines
     let mut lines = String::new();
-    for _ in 0..count {
+    let mut total_len = 0;
+    let mut line_lengths = Vec::new();
+    let mut cursor_line = 0;
+    for i in 0..line_count {
         let mut line = String::new();
         reader.read_line(&mut line).context("Unable to read line")?;
         lines.push_str(&line);
+
+        // this is O(n) but necessary in case the command contains
+        // multi-byte characters
+        let line_len = line.chars().count();
+
+        // determine in which line we are currently
+        if (total_len..total_len + line_len).contains(&cursor) {
+            cursor_line = i;
+        }
+
+        line_lengths.push(line_len);
+        total_len += line_len;
     }
+
+    // Performance: Limit spans to a window around the cursor. This is necessary
+    // to reduce the number of ranges sent back to the client. The window is
+    // calculated based on the number of lines and columns in the terminal. We
+    // try to cut off as much as possible. In practice, since we don't know
+    // exactly where the cursor is on the screen, we will most likely still
+    // include too much, but that's OK.
+    let min = line_lengths[0..cursor_line.saturating_sub(terminal_lines)]
+        .iter()
+        .sum::<usize>()
+        .max(cursor.saturating_sub(terminal_columns * terminal_lines));
+    let max = line_lengths[0..line_lengths
+        .len()
+        .min(cursor_line.saturating_add(terminal_lines))]
+        .iter()
+        .sum::<usize>()
+        .min(cursor.saturating_add(terminal_columns * terminal_lines));
 
     // write response
     let result = highlighter.highlight(&lines);
-    for r in result.iter() {
+    for s in result.iter() {
+        if s.end <= min || s.start >= max {
+            continue;
+        }
         stream
-            .write_all(format!("{}\n", r).as_bytes())
+            .write_all(format!("{} {} fg={}\n", s.start, s.end, s.foreground_color).as_bytes())
             .context("Unable to send response")?;
     }
 

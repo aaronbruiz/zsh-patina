@@ -40,10 +40,10 @@ fn to_ansi_color(color: Color) -> Option<String> {
     }
 }
 
-struct Span {
-    start: usize,
-    end: usize,
-    foreground_color: String,
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+    pub foreground_color: String,
 }
 
 pub struct Highlighter {
@@ -62,8 +62,8 @@ impl Highlighter {
         Self { syntax_set, theme }
     }
 
-    pub fn highlight(&self, command: &str) -> Vec<String> {
-        let spans = if command.trim_ascii_start().starts_with("time ") {
+    pub fn highlight(&self, command: &str) -> Vec<Span> {
+        if command.trim_ascii_start().starts_with("time ") {
             let rest = command.find("time ").unwrap() + 5;
             let mut spans = self.highlight_internal(&command[0..rest]);
             spans.extend(
@@ -78,12 +78,7 @@ impl Highlighter {
             spans
         } else {
             self.highlight_internal(command)
-        };
-
-        spans
-            .into_iter()
-            .map(|s| format!("{} {} fg={}", s.start, s.end, s.foreground_color))
-            .collect()
+        }
     }
 
     fn highlight_internal(&self, command: &str) -> Vec<Span> {

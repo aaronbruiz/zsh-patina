@@ -46,8 +46,8 @@ _zsh_patina() {
     local fd=$REPLY
 
     {
-        # send line count
-        print -r -- "$count"
+        # send header
+        print -r -- "$COLUMNS $LINES $CURSOR $count"
 
         # send lines
         print -r -- "$BUFFER"
