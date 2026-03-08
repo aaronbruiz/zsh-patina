@@ -177,6 +177,10 @@ pub fn stop_daemon(data_dir: &Path) -> Result<()> {
         && pid_alive(pid)
     {
         unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+
+        let _ = fs::remove_file(pid_file);
+        let _ = fs::remove_file(sock_path(data_dir));
+
         Ok(())
     } else {
         bail!("Daemon is not running")
