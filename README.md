@@ -67,8 +67,7 @@ timeout_ms = 500
 After changing the configuration, restart the daemon with:
 
 ```shell
-~/.zsh-patina/target/release/zsh-patina stop
-~/.zsh-patina/target/release/zsh-patina start
+~/.zsh-patina/target/release/zsh-patina restart
 ```
 
 ## How to remove the plugin

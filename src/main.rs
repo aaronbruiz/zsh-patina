@@ -28,6 +28,10 @@ enum Command {
     /// Stop the highlighter daemon if it's not already stopped
     Stop,
 
+    /// Restart the highlighter daemon or make sure it is started if it's not
+    /// running
+    Restart,
+
     /// Check whether the highlighter daemon is running
     Status,
 }
@@ -101,6 +105,10 @@ fn main() -> Result<()> {
     match args.command {
         Command::Start => start_daemon(&data_dir, &config),
         Command::Stop => stop_daemon(&data_dir),
+        Command::Restart => {
+            stop_daemon(&data_dir)?;
+            start_daemon(&data_dir, &config)
+        }
         Command::Status => status_daemon(&data_dir),
     }
 }
