@@ -1,3 +1,7 @@
+zsh-patina() {
+    "$_zsh_patina_path/target/release/zsh-patina" "$@"
+}
+
 # ensure the daemon is running
 _zsh_patina_ensure_running() {
     local daemon_path="$_zsh_patina_path/target/release/zsh-patina"

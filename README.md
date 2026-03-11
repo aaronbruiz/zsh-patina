@@ -67,7 +67,7 @@ timeout_ms = 500
 After changing the configuration, restart the daemon with:
 
 ```shell
-~/.zsh-patina/target/release/zsh-patina restart
+zsh-patina restart
 ```
 
 ## Theming
@@ -143,13 +143,13 @@ Scopes follow the [Sublime Text scope naming convention](https://www.sublimetext
 To list all available scopes, run:
 
 ```shell
-~/.zsh-patina/target/release/zsh-patina list-scopes
+zsh-patina list-scopes
 ```
 
 You can also use the `tokenize` subcommand to inspect which scopes are assigned to parts of a command:
 
 ```shell
-echo 'for i in 1 2 3; do echo $i; done' | ~/.zsh-patina/target/release/zsh-patina tokenize
+echo 'for i in 1 2 3; do echo $i; done' | zsh-patina tokenize
 ```
 
 ## How to remove the plugin
@@ -161,7 +161,7 @@ In the unlikely case you don't like zsh-patina ☹️, you can remove it as foll
 3. Stop the daemon:
 
    ```shell
-   $HOME/.zsh-patina/target/release/zsh-patina stop
+   zsh-patina stop
    ```
 
 4. Delete the directory where `zsh-patina` is installed:
