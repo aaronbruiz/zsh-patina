@@ -70,6 +70,88 @@ After changing the configuration, restart the daemon with:
 ~/.zsh-patina/target/release/zsh-patina restart
 ```
 
+## Theming
+
+zsh-patina supports custom syntax highlighting themes. You can choose one of the built-in themes or create your own.
+
+Note that after changing the `theme` setting or editing your custom theme file, as described [above](#configuration), you need to restart the daemon so the new colors are applied.
+
+### Built-in themes
+
+Set the `theme` option in your configuration file (`~/.config/zsh-patina/config.toml`):
+
+```toml
+[highlighting]
+theme = "patina"
+```
+
+The following built-in themes are available:
+
+| Theme | Description |
+|-------|-------------|
+| `patina` | The default theme with a balanced color palette |
+| `simple` | A minimal theme with fewer colors |
+| `lavender` | A variant with magenta/lavender tones |
+
+To load a custom theme from a file, use the `file:` prefix:
+
+```toml
+[highlighting]
+theme = "file:/path/to/mytheme.toml"
+```
+
+The path must be absolute.
+
+### Creating a custom theme
+
+A theme is a TOML file that maps **scopes** to **colors**. Each key is a scope name (note the quotation marks!) and each value is a color. For example:
+
+```toml
+# comments
+"comment" = "#a0a0a0"
+
+# strings
+"string" = "green"
+
+# escape characters
+"constant.character.escape" = "yellow"
+
+# environment variables
+"variable.other" = "yellow"
+"punctuation.definition.variable" = "yellow"
+
+# commands
+"variable.function" = "cyan"
+
+# keywords
+"keyword" = "blue"
+```
+
+### Colors
+
+Colors can be specified as:
+
+- One of the eight **ANSI colors**: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`
+- A **hex color** in the format `#RRGGBB` (e.g. `"#a0a0a0"`) or `#RGB` (e.g. `"#f00"`)
+
+ANSI color names use your terminal's color scheme, so the actual appearance depends on your terminal configuration. Hex colors are displayed as true colors (24-bit) if your terminal supports them.
+
+### Scopes
+
+Scopes follow the [Sublime Text scope naming convention](https://www.sublimetext.com/docs/scope_naming.html). A scope like `keyword` matches all keyword-related tokens (e.g. `keyword.control.for.shell`, `keyword.operator`). More specific scopes take precedence over general ones.
+
+To list all available scopes, run:
+
+```shell
+~/.zsh-patina/target/release/zsh-patina list-scopes
+```
+
+You can also use the `tokenize` subcommand to inspect which scopes are assigned to parts of a command:
+
+```shell
+echo 'for i in 1 2 3; do echo $i; done' | ~/.zsh-patina/target/release/zsh-patina tokenize
+```
+
 ## How to remove the plugin
 
 In the unlikely case you don't like zsh-patina ☹️, you can remove it as follows (note that these instructions assume you've installed the plugin in `$HOME/.zsh-patina`):
