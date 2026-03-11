@@ -72,20 +72,32 @@ After changing the configuration, restart the daemon with:
 
 ## How to remove the plugin
 
-In the unlikely case you don't like zsh-patina ☹️, you can remove it as follows:
+In the unlikely case you don't like zsh-patina ☹️, you can remove it as follows (note that these instructions assume you've installed the plugin in `$HOME/.zsh-patina`):
 
-1. Remove the `source ~/.zsh-patina/...` line from your `.zshrc`.
+1. Remove the `source ~/.zsh-patina/zsh-patina.plugin.zsh` line from your `.zshrc`.
 2. Restart the terminal
-3. Delete the directory where `zsh-patina` is installed:
+3. Stop the daemon:
+
+   ```shell
+   $HOME/.zsh-patina/target/release/zsh-patina stop
+   ```
+
+4. Delete the directory where `zsh-patina` is installed:
 
    ```shell
    rm -rf $HOME/.zsh-patina
    ```
 
-4. Delete the plugin's data directory:
+5. Delete the plugin's data directory:
 
    ```shell
    rm -rf $HOME/.local/share/zsh-patina/
+   ```
+
+6. If you have created a [configuration](#configuration) file, you may also want to delete the configuration directory:
+
+   ```shell
+   rm -rf $HOME/.config/zsh-patina/
    ```
 
 ## Contribute
