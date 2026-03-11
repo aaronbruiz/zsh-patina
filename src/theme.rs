@@ -1,7 +1,7 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, fs, str::FromStr};
 
 use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use syntect::{
     highlighting::{
         Color, ScopeSelector, ScopeSelectors, StyleModifier, Theme as SyntectTheme, ThemeItem,
@@ -103,7 +103,7 @@ impl Serialize for ThemeSource {
             ThemeSource::Simple => serializer.serialize_str("simple"),
             ThemeSource::Patina => serializer.serialize_str("patina"),
             ThemeSource::Lavender => serializer.serialize_str("lavender"),
-            ThemeSource::File(_) => todo!(),
+            ThemeSource::File(path) => serializer.serialize_str(&format!("file:{path}")),
         }
     }
 }
@@ -114,12 +114,13 @@ impl<'de> Deserialize<'de> for ThemeSource {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(match s.as_str() {
-            "simple" => ThemeSource::Simple,
-            "patina" => ThemeSource::Patina,
-            "lavender" => ThemeSource::Lavender,
-            _ => todo!(),
-        })
+        match s.as_str() {
+            "simple" => Ok(ThemeSource::Simple),
+            "patina" => Ok(ThemeSource::Patina),
+            "lavender" => Ok(ThemeSource::Lavender),
+            _ if s.starts_with("file:") => Ok(ThemeSource::File(s[5..].to_string())),
+            _ => Err(Error::custom(format!("Unsupported theme source: {s}"))),
+        }
     }
 }
 
@@ -139,7 +140,12 @@ impl Theme {
                 .expect("Unable to load default theme"),
             ThemeSource::Lavender => toml::from_slice(include_bytes!("../themes/lavender.toml"))
                 .expect("Unable to load lavender theme"),
-            ThemeSource::File(_) => todo!(),
+            ThemeSource::File(path) => {
+                let theme_source = fs::read_to_string(path)
+                    .with_context(|| format!("Failed to read theme file `{path}'"))?;
+                toml::from_str(&theme_source)
+                    .with_context(|| format!("Failed to parse theme file `{path}'"))?
+            }
         })
     }
 }

@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use syntect::{
     easy::HighlightLines,
     highlighting::{Color, Style, Theme as SyntectTheme},
@@ -11,7 +11,10 @@ use syntect::{
     util::LinesWithEndings,
 };
 
-use crate::{HighlightingConfig, theme::Theme};
+use crate::{
+    HighlightingConfig,
+    theme::{Theme, ThemeSource},
+};
 
 fn to_hex(color: Color) -> String {
     format!("#{:0>2x}{:0>2x}{:0>2x}", color.r, color.g, color.b)
@@ -106,7 +109,12 @@ impl Highlighter {
             max_line_length: config.max_line_length,
             timeout: config.timeout,
             syntax_set,
-            theme: theme.try_into()?,
+            theme: theme.try_into().with_context(|| match &config.theme {
+                ThemeSource::Simple => "Failed to parse simple theme".to_string(),
+                ThemeSource::Patina => "Failed to parse default theme".to_string(),
+                ThemeSource::Lavender => "Failed to parse lavender theme".to_string(),
+                ThemeSource::File(path) => format!("Failed to parse theme file `{path}'"),
+            })?,
         })
     }
 
