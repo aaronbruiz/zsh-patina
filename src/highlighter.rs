@@ -188,7 +188,12 @@ impl Highlighter {
             .expect("Unable to load theme");
         let syntect_theme = SyntectTheme {
             settings: ThemeSettings {
-                foreground: Some(Color::WHITE),
+                foreground: Some(Color {
+                    r: 7,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                }),
                 ..Default::default()
             },
             scopes: theme
