@@ -100,7 +100,7 @@ To load a custom theme from a file, use the `file:` prefix:
 theme = "file:/path/to/mytheme.toml"
 ```
 
-The path must be absolute.
+The path must be absolute. It can start with a tilde `~` (for you home directory), and you can use environment variables such as `$HOME`.
 
 ### Creating a custom theme
 

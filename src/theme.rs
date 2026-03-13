@@ -47,7 +47,11 @@ impl<'de> Deserialize<'de> for ThemeSource {
             "simple" => Ok(ThemeSource::Simple),
             "patina" => Ok(ThemeSource::Patina),
             "lavender" => Ok(ThemeSource::Lavender),
-            _ if s.starts_with("file:") => Ok(ThemeSource::File(s[5..].to_string())),
+            _ if s.starts_with("file:") => Ok(ThemeSource::File(
+                shellexpand::full(&s[5..])
+                    .map_err(D::Error::custom)?
+                    .to_string(),
+            )),
             _ => Err(Error::custom(format!("Unsupported theme source: {s}"))),
         }
     }
