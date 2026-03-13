@@ -1,4 +1,4 @@
-# zsh-patina
+# zsh-patina [![Actions Status](https://github.com/michel-kraemer/zsh-patina/workflows/CI/badge.svg)](https://github.com/michel-kraemer/zsh-patina/actions) [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **$ A blazingly fast Zsh plugin performing syntax highlighting of your command line while you type 🌈**
 
