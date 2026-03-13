@@ -210,9 +210,9 @@ In the unlikely case you don't like zsh-patina ☹️, you can remove it as foll
 
 ## Contribute
 
-I mostly built the plugin for myself because I wasn't satisfied with existing solutions (in terms of accuracy and performance). It doesn't have many features and is not particularly [configurable](#configuration) yet. It does one job, and it does it well IMHO.
+I mostly built the plugin for myself because I wasn't satisfied with existing solutions (in terms of accuracy and performance). zsh-patina does one job, and it does it well IMHO.
 
-If you like the plugin and want to add a feature or found a bug, feel free to contribute. **Issue reports and pull requests are more than welcome!**
+If you like the plugin as much as I do and want to add a feature or found a bug, feel free to contribute. **Issue reports and pull requests are more than welcome!**
 
 ## License
 
