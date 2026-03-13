@@ -14,7 +14,7 @@ In contrast to other Zsh syntax highlighters (e.g. [zsh-syntax-highlighting](htt
 
 ## How to install
 
-**Prerequisites:** At the moment, there are no pre-compiled binaries. You have to build the plugin yourself. For this, you require [Rust](https://rust-lang.org/) 1.94.0 or higher. The easiest way to install Rust is through [rustup](https://rustup.rs/).
+**Prerequisites:** At the moment, there are no pre-compiled binaries. You have to build the plugin yourself. For this, you require [Rust](https://rust-lang.org/) 1.88.0 or higher. The easiest way to install Rust is through [rustup](https://rustup.rs/).
 
 1. Clone the repository:
 

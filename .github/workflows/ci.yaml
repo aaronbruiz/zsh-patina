@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Install Rust
+      - name: Install MSRV
+        uses: dtolnay/rust-toolchain@stable
+
+      # Get MSRV from Cargo.toml
+      - name: Extract metadata
+        id: extract_metadata
+        run: |
+          cargo metadata --no-deps --format-version 1 | jq -r '"msrv=" + .packages[0].rust_version' | tee -a $GITHUB_OUTPUT
+      
+      # Test with MSRV
+      - name: Install MSRV
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.extract_metadata.outputs.msrv }}
+      - name: Run tests
+        run: cargo --version && cargo test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Install Rust
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+
+      # Check code
+      - run: cargo fmt -- --check
+      - run: cargo clippy
+
+      # Build and smoke test
+      - name: Build
+        run: cargo b -r
+      - name: List scopes
+        run: target/release/zsh-patina list-scopes
+      - name: Tokenize
+        run: echo 'for i in 1 2 3; do echo $i; done' | target/release/zsh-patina tokenize
