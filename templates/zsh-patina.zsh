@@ -16,6 +16,21 @@ _zsh_patina_resolve_callable() {
     fi
 }
 
+_zsh_patina_encode_path() {
+    # fast path
+    [[ $1 != *[%$'\t\n\r\f ']* ]] && { REPLY="$1"; return }
+
+    # only encode characters recognized by Rust's split_ascii_whitespace()
+    local s="${1//'%'/%25}"
+    s="${s//' '/%20}"
+    s="${s//$'\t'/%09}"
+    s="${s//$'\n'/%0A}"
+    s="${s//$'\r'/%0D}"
+    s="${s//$'\f'/%0C}"
+
+    REPLY="$s"
+}
+
 _zsh_patina() {
     # start=$EPOCHREALTIME
 
@@ -65,7 +80,7 @@ _zsh_patina() {
 
     {
         # send header
-        print -r -- "term_cols=$COLUMNS term_rows=$LINES cursor=$CURSOR pre_buffer_line_count=$pre_count buffer_line_count=$count"
+        print -r -- "term_cols=$COLUMNS term_rows=$LINES cursor=$CURSOR pre_buffer_line_count=$pre_count buffer_line_count=$count pwd=$_ZSH_PATINA_ENCODED_PWD"
 
         # send pre-buffer lines
         if (( pre_count != 0 )); then
@@ -134,9 +149,18 @@ _zsh_patina() {
     # printf "%.3f ms\n" $elapsed_ms
 }
 
+# store and update the current working directory in an encoded form
+_zsh_patina_chpwd() {
+    _zsh_patina_encode_path $PWD
+    _ZSH_PATINA_ENCODED_PWD=$REPLY
+}
+
 if ! zmodload zsh/net/socket 2>/dev/null; then
     print -u2 "zsh-patina: failed to load zsh/net/socket module"
 fi
 
-autoload -U add-zle-hook-widget
+autoload -U add-zle-hook-widget add-zsh-hook
 add-zle-hook-widget line-pre-redraw _zsh_patina
+add-zsh-hook chpwd _zsh_patina_chpwd
+
+_zsh_patina_chpwd

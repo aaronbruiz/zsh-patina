@@ -68,6 +68,36 @@ fn format_static_style(style: &StaticStyle) -> String {
     result
 }
 
+/// Decode a path that was encoded by our Zsh script with percent-encoding for
+/// ASCII whitespace characters
+fn decode_path(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let decoded = match &bytes[i + 1..i + 3] {
+                // the same characters are used by Rust's is_ascii_whitespace()
+                b"20" => Some(' '),
+                b"09" => Some('\t'),
+                b"0A" => Some('\n'),
+                b"0D" => Some('\r'),
+                b"0C" => Some('\x0C'),
+                b"25" => Some('%'),
+                _ => None,
+            };
+            if let Some(c) = decoded {
+                out.push(c);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
 fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> Result<()> {
     let mut reader = BufReader::new(&stream);
 
@@ -81,6 +111,7 @@ fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> R
     let mut cursor = 0;
     let mut pre_buffer_line_count = 0;
     let mut buffer_line_count = 0;
+    let mut pwd = None;
     for h in header.split_ascii_whitespace() {
         let (key, value) = h
             .split_once("=")
@@ -110,6 +141,9 @@ fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> R
                 buffer_line_count = value
                     .parse::<usize>()
                     .context("Unable to parse number of lines in buffer")?;
+            }
+            "pwd" => {
+                pwd = Some(decode_path(value));
             }
             _ => {}
         }
@@ -169,7 +203,7 @@ fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> R
         .min(cursor.saturating_add(term_cols * term_rows));
 
     // perform highlighting
-    let mut result = highlighter.highlight(&lines)?;
+    let mut result = highlighter.highlight(&lines, pwd.as_deref())?;
 
     // skip spans in the pre-buffer
     result.retain(|s| s.end > pre_buffer_total_len);
@@ -268,7 +302,7 @@ fn start_daemon_internal(data_dir: &Path, config: &Config) -> Result<Role> {
     let highlighter = Arc::new(Highlighter::new(&config.highlighting)?);
 
     // highlight something to make sure everything is loaded
-    highlighter.highlight("echo Welcome to zsh-patina!")?;
+    highlighter.highlight("echo Welcome to zsh-patina!", None)?;
 
     // Make sure the data directory exists
     fs::create_dir_all(data_dir).context("Unable to create data directory")?;

@@ -1,5 +1,8 @@
 use std::{
+    fs,
     ops::Range,
+    os::unix::fs::PermissionsExt,
+    path::Path,
     time::{Duration, Instant},
 };
 
@@ -18,6 +21,11 @@ use crate::{
 };
 
 const CALLABLE: &str = "variable.function.shell";
+const DYNAMIC_CALLABLE_ALIAS: &str = "dynamic.callable.alias.shell";
+const DYNAMIC_CALLABLE_BUILTIN: &str = "dynamic.callable.builtin.shell";
+const DYNAMIC_CALLABLE_COMMAND: &str = "dynamic.callable.command.shell";
+const DYNAMIC_CALLABLE_FUNCTION: &str = "dynamic.callable.function.shell";
+const DYNAMIC_CALLABLE_MISSING: &str = "dynamic.callable.missing.shell";
 
 /// A span of text with a foreground color. The range is specified in terms of
 /// character indices, not byte indices.
@@ -109,6 +117,29 @@ fn resolve_static_style(scope: &str, theme: &Theme) -> Option<StaticStyle> {
     }
 }
 
+/// Check if the given path is an executable file. If the path is relative, it
+/// is resolved against the provided `pwd`. If the path is a directory, it is
+/// only considered executable if it ends with a slash.
+fn is_path_executable(path: &str, pwd: &str) -> bool {
+    let p = Path::new(path);
+    let full_path = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        Path::new(pwd).join(p)
+    };
+
+    let Ok(metadata) = fs::metadata(&full_path) else {
+        return false;
+    };
+
+    let is_executable = (metadata.permissions().mode() & 0o111) != 0;
+    if metadata.is_dir() {
+        is_executable && path.ends_with('/')
+    } else {
+        is_executable
+    }
+}
+
 pub struct Highlighter {
     max_line_length: usize,
     timeout: Duration,
@@ -156,27 +187,22 @@ impl Highlighter {
                 })?;
 
         let mut callable_choices: FxHashMap<StaticStyle, String> = FxHashMap::default();
-        if let Some(alias_style) = resolve_static_style("dynamic.callable.alias.shell", &theme) {
+        if let Some(alias_style) = resolve_static_style(DYNAMIC_CALLABLE_ALIAS, &theme) {
             callable_choices.entry(alias_style).or_default().push('a');
         }
-        if let Some(builtin_style) = resolve_static_style("dynamic.callable.builtin.shell", &theme)
-        {
+        if let Some(builtin_style) = resolve_static_style(DYNAMIC_CALLABLE_BUILTIN, &theme) {
             callable_choices.entry(builtin_style).or_default().push('b');
         }
-        if let Some(command_style) = resolve_static_style("dynamic.callable.command.shell", &theme)
-        {
+        if let Some(command_style) = resolve_static_style(DYNAMIC_CALLABLE_COMMAND, &theme) {
             callable_choices.entry(command_style).or_default().push('c');
         }
-        if let Some(function_style) =
-            resolve_static_style("dynamic.callable.function.shell", &theme)
-        {
+        if let Some(function_style) = resolve_static_style(DYNAMIC_CALLABLE_FUNCTION, &theme) {
             callable_choices
                 .entry(function_style)
                 .or_default()
                 .push('f');
         }
-        if let Some(missing_style) = resolve_static_style("dynamic.callable.missing.shell", &theme)
-        {
+        if let Some(missing_style) = resolve_static_style(DYNAMIC_CALLABLE_MISSING, &theme) {
             callable_choices.entry(missing_style).or_default().push('m');
         }
         if let Some(else_style) = resolve_static_style(CALLABLE, &theme) {
@@ -203,21 +229,25 @@ impl Highlighter {
         &self.callable_choices
     }
 
-    pub fn highlight(&self, command: &str) -> Result<Vec<Span>> {
+    pub fn highlight(&self, command: &str, pwd: Option<&str>) -> Result<Vec<Span>> {
         if let Some(rest) = find_prefix_split(command) {
-            let mut spans = self.highlight_internal(&command[0..rest])?;
-            spans.extend(self.highlight(&command[rest..])?.into_iter().map(|mut s| {
-                s.start += rest;
-                s.end += rest;
-                s
-            }));
+            let mut spans = self.highlight_internal(&command[0..rest], pwd)?;
+            spans.extend(
+                self.highlight(&command[rest..], pwd)?
+                    .into_iter()
+                    .map(|mut s| {
+                        s.start += rest;
+                        s.end += rest;
+                        s
+                    }),
+            );
             Ok(spans)
         } else {
-            self.highlight_internal(command)
+            self.highlight_internal(command, pwd)
         }
     }
 
-    fn highlight_internal(&self, command: &str) -> Result<Vec<Span>> {
+    fn highlight_internal(&self, command: &str, pwd: Option<&str>) -> Result<Vec<Span>> {
         let start = Instant::now();
 
         let syntax = self.syntax_set.find_syntax_by_extension("sh").unwrap();
@@ -245,7 +275,15 @@ impl Highlighter {
 
                 if let Some(scope) = self.scope_mapping.decode(&r.0.foreground) {
                     let style = if scope == CALLABLE {
-                        Some(SpanStyle::Dynamic(DynamicStyle::Callable))
+                        if let Some(pwd) = pwd
+                            && r.1.contains('/')
+                            && is_path_executable(r.1, pwd)
+                        {
+                            resolve_static_style(DYNAMIC_CALLABLE_COMMAND, &self.theme)
+                                .map(SpanStyle::Static)
+                        } else {
+                            Some(SpanStyle::Dynamic(DynamicStyle::Callable))
+                        }
                     } else {
                         resolve_static_style(scope, &self.theme).map(SpanStyle::Static)
                     };
