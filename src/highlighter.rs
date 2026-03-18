@@ -220,11 +220,14 @@ impl Highlighter {
         &self.callable_choices
     }
 
-    pub fn highlight(&self, command: &str, pwd: Option<&str>) -> Result<Vec<Span>> {
+    pub fn highlight<P>(&self, command: &str, pwd: Option<&str>, predicate: P) -> Result<Vec<Span>>
+    where
+        P: Fn(&Range<usize>) -> bool + Copy,
+    {
         if let Some(rest) = find_prefix_split(command) {
-            let mut spans = self.highlight_internal(&command[0..rest], pwd)?;
+            let mut spans = self.highlight_internal(&command[0..rest], pwd, predicate)?;
             spans.extend(
-                self.highlight(&command[rest..], pwd)?
+                self.highlight(&command[rest..], pwd, predicate)?
                     .into_iter()
                     .map(|mut s| {
                         s.start += rest;
@@ -234,11 +237,19 @@ impl Highlighter {
             );
             Ok(spans)
         } else {
-            self.highlight_internal(command, pwd)
+            self.highlight_internal(command, pwd, predicate)
         }
     }
 
-    fn highlight_internal(&self, command: &str, pwd: Option<&str>) -> Result<Vec<Span>> {
+    fn highlight_internal<P>(
+        &self,
+        command: &str,
+        pwd: Option<&str>,
+        predicate: P,
+    ) -> Result<Vec<Span>>
+    where
+        P: Fn(&Range<usize>) -> bool,
+    {
         let start = Instant::now();
 
         let syntax = self.syntax_set.find_syntax_by_extension("sh").unwrap();
@@ -275,81 +286,62 @@ impl Highlighter {
                     let range = i..i + len;
                     let byte_range = bi..bi + r.1.len();
 
-                    match scope {
-                        ARGUMENTS => {
-                            if let Some(group) = &mut group
-                                && group.byte_range_in_line.end == bi
-                                && (group.scope == ARGUMENTS
-                                    || group.scope == CHARACTER_ESCAPE
-                                    || group.scope == TILDE)
-                                && !r.1.as_bytes()[0].is_ascii_whitespace()
-                            {
-                                group.byte_range_in_line.end = byte_range.end;
-                                group.char_range_in_command.end = range.end;
-                                group.scope = ARGUMENTS;
-                            } else {
+                    if predicate(&range) {
+                        match scope {
+                            ARGUMENTS | CALLABLE => {
+                                if let Some(group) = &mut group
+                                    && group.byte_range_in_line.end == bi
+                                    && (group.scope == scope
+                                        || group.scope == CHARACTER_ESCAPE
+                                        || group.scope == TILDE)
+                                    && !r.1.as_bytes()[0].is_ascii_whitespace()
+                                {
+                                    group.byte_range_in_line.end = byte_range.end;
+                                    group.char_range_in_command.end = range.end;
+                                    group.scope = scope;
+                                } else {
+                                    self.flush_group(&mut group, line, pwd, &mut result);
+                                    group = Some(Group {
+                                        char_range_in_command: range,
+                                        byte_range_in_line: byte_range,
+                                        scope,
+                                    });
+                                }
+                            }
+
+                            CHARACTER_ESCAPE => {
+                                if let Some(group) = &mut group
+                                    && group.byte_range_in_line.end == bi
+                                    && (group.scope == ARGUMENTS
+                                        || group.scope == CALLABLE
+                                        || group.scope == CHARACTER_ESCAPE
+                                        || group.scope == TILDE)
+                                {
+                                    group.byte_range_in_line.end = byte_range.end;
+                                    group.char_range_in_command.end = range.end;
+                                } else {
+                                    self.flush_group(&mut group, line, pwd, &mut result);
+                                    group = Some(Group {
+                                        char_range_in_command: range,
+                                        byte_range_in_line: byte_range,
+                                        scope: CHARACTER_ESCAPE,
+                                    });
+                                }
+                            }
+
+                            TILDE => {
                                 self.flush_group(&mut group, line, pwd, &mut result);
                                 group = Some(Group {
                                     char_range_in_command: range,
                                     byte_range_in_line: byte_range,
-                                    scope: ARGUMENTS,
+                                    scope: TILDE,
                                 });
                             }
-                        }
 
-                        CALLABLE => {
-                            if let Some(group) = &mut group
-                                && group.byte_range_in_line.end == bi
-                                && (group.scope == CALLABLE
-                                    || group.scope == CHARACTER_ESCAPE
-                                    || group.scope == TILDE)
-                                && !r.1.as_bytes()[0].is_ascii_whitespace()
-                            {
-                                group.byte_range_in_line.end = byte_range.end;
-                                group.char_range_in_command.end = range.end;
-                                group.scope = CALLABLE;
-                            } else {
+                            _ => {
                                 self.flush_group(&mut group, line, pwd, &mut result);
-                                group = Some(Group {
-                                    char_range_in_command: range,
-                                    byte_range_in_line: byte_range,
-                                    scope: CALLABLE,
-                                });
+                                self.highlight_other(range, scope, &mut result);
                             }
-                        }
-
-                        CHARACTER_ESCAPE => {
-                            if let Some(group) = &mut group
-                                && group.byte_range_in_line.end == bi
-                                && (group.scope == ARGUMENTS
-                                    || group.scope == CALLABLE
-                                    || group.scope == CHARACTER_ESCAPE
-                                    || group.scope == TILDE)
-                            {
-                                group.byte_range_in_line.end = byte_range.end;
-                                group.char_range_in_command.end = range.end;
-                            } else {
-                                self.flush_group(&mut group, line, pwd, &mut result);
-                                group = Some(Group {
-                                    char_range_in_command: range,
-                                    byte_range_in_line: byte_range,
-                                    scope: CHARACTER_ESCAPE,
-                                });
-                            }
-                        }
-
-                        TILDE => {
-                            self.flush_group(&mut group, line, pwd, &mut result);
-                            group = Some(Group {
-                                char_range_in_command: range,
-                                byte_range_in_line: byte_range,
-                                scope: TILDE,
-                            });
-                        }
-
-                        _ => {
-                            self.flush_group(&mut group, line, pwd, &mut result);
-                            self.highlight_other(range, scope, &mut result);
                         }
                     }
                 }
@@ -622,7 +614,7 @@ mod tests {
     #[test]
     fn echo() -> Result<()> {
         let highlighter = Highlighter::new(&test_config())?;
-        let highlighted = highlighter.highlight("echo", None)?;
+        let highlighted = highlighter.highlight("echo", None, |_| true)?;
         assert_eq!(
             highlighted,
             vec![Span {
@@ -642,8 +634,11 @@ mod tests {
         fs::write(test_path, "test contents")?;
 
         let highlighter = Highlighter::new(&test_config())?;
-        let highlighted =
-            highlighter.highlight("cp test.txt dest.txt", Some(dir.path().to_str().unwrap()))?;
+        let highlighted = highlighter.highlight(
+            "cp test.txt dest.txt",
+            Some(dir.path().to_str().unwrap()),
+            |_| true,
+        )?;
 
         let dynamic_file_style =
             resolve_static_style(DYNAMIC_PATH_FILE, &highlighter.theme).unwrap();
@@ -677,8 +672,11 @@ mod tests {
         fs::create_dir(dest_path)?;
 
         let highlighter = Highlighter::new(&test_config())?;
-        let highlighted =
-            highlighter.highlight("cp test.txt dest", Some(dir.path().to_str().unwrap()))?;
+        let highlighted = highlighter.highlight(
+            "cp test.txt dest",
+            Some(dir.path().to_str().unwrap()),
+            |_| true,
+        )?;
 
         let dynamic_file_style =
             resolve_static_style(DYNAMIC_PATH_FILE, &highlighter.theme).unwrap();
@@ -719,7 +717,8 @@ mod tests {
         let dynamic_command_style =
             resolve_static_style(DYNAMIC_CALLABLE_COMMAND, &highlighter.theme).unwrap();
 
-        let highlighted = highlighter.highlight("~", Some(dir.path().to_str().unwrap()))?;
+        let highlighted =
+            highlighter.highlight("~", Some(dir.path().to_str().unwrap()), |_| true)?;
         assert_eq!(
             highlighted,
             vec![Span {
@@ -729,7 +728,8 @@ mod tests {
             }]
         );
 
-        let highlighted = highlighter.highlight("~/", Some(dir.path().to_str().unwrap()))?;
+        let highlighted =
+            highlighter.highlight("~/", Some(dir.path().to_str().unwrap()), |_| true)?;
         assert_eq!(
             highlighted,
             vec![Span {
@@ -739,7 +739,8 @@ mod tests {
             }]
         );
 
-        let highlighted = highlighter.highlight("~ echo", Some(dir.path().to_str().unwrap()))?;
+        let highlighted =
+            highlighter.highlight("~ echo", Some(dir.path().to_str().unwrap()), |_| true)?;
         assert_eq!(
             highlighted,
             vec![Span {
@@ -750,7 +751,9 @@ mod tests {
         );
 
         let highlighted =
-            highlighter.highlight("~doesnotexist", Some(dir.path().to_str().unwrap()))?;
+            highlighter.highlight("~doesnotexist", Some(dir.path().to_str().unwrap()), |_| {
+                true
+            })?;
         assert_eq!(
             highlighted,
             vec![Span {
@@ -773,7 +776,8 @@ mod tests {
         let dynamic_directory_style =
             resolve_static_style(DYNAMIC_PATH_DIRECTORY, &highlighter.theme).unwrap();
 
-        let highlighted = highlighter.highlight("ls ~", Some(dir.path().to_str().unwrap()))?;
+        let highlighted =
+            highlighter.highlight("ls ~", Some(dir.path().to_str().unwrap()), |_| true)?;
         assert_eq!(
             highlighted,
             vec![
@@ -790,7 +794,8 @@ mod tests {
             ]
         );
 
-        let highlighted = highlighter.highlight("ls ~/", Some(dir.path().to_str().unwrap()))?;
+        let highlighted =
+            highlighter.highlight("ls ~/", Some(dir.path().to_str().unwrap()), |_| true)?;
         assert_eq!(
             highlighted,
             vec![
@@ -810,6 +815,7 @@ mod tests {
         let highlighted = highlighter.highlight(
             "ls ~/this/path/does/not/exist",
             Some(dir.path().to_str().unwrap()),
+            |_| true,
         )?;
         assert_eq!(
             highlighted,

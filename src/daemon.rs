@@ -215,23 +215,27 @@ fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> R
         .min(cursor.saturating_add(term_cols * term_rows));
 
     // perform highlighting
-    let mut result = highlighter.highlight(&lines, pwd.as_deref())?;
+    let result = highlighter.highlight(&lines, pwd.as_deref(), |range| {
+        // skip spans in the pre-buffer
+        if range.end <= pre_buffer_total_len {
+            return false;
+        }
 
-    // skip spans in the pre-buffer
-    result.retain(|s| s.end > pre_buffer_total_len);
+        // subtract pre-buffer offset
+        let start = range.start.saturating_sub(pre_buffer_total_len);
+        let end = range.end.saturating_sub(pre_buffer_total_len);
 
-    // subtract pre-buffer offset
-    for s in &mut result {
-        s.start = s.start.saturating_sub(pre_buffer_total_len);
-        s.end = s.end.saturating_sub(pre_buffer_total_len);
-    }
-
-    // skip spans outside the current terminal window
-    result.retain(|s| s.start < max && s.end > min);
+        // skip spans outside the current terminal window
+        start < max && end > min
+    })?;
 
     // merge consecutive spans with the same style
     let mut merged: Vec<Span> = Vec::new();
-    for span in result {
+    for mut span in result {
+        // subtract pre-buffer offset
+        span.start = span.start.saturating_sub(pre_buffer_total_len);
+        span.end = span.end.saturating_sub(pre_buffer_total_len);
+
         if let Some(prev) = merged.last_mut()
             && prev.end == span.start
             && prev.style == span.style
@@ -320,7 +324,7 @@ fn start_daemon_internal(data_dir: &Path, config: &Config) -> Result<Role> {
     let highlighter = Arc::new(Highlighter::new(&config.highlighting)?);
 
     // highlight something to make sure everything is loaded
-    highlighter.highlight("echo Welcome to zsh-patina!", None)?;
+    highlighter.highlight("echo Welcome to zsh-patina!", None, |_| true)?;
 
     // Make sure the data directory exists
     fs::create_dir_all(data_dir).context("Unable to create data directory")?;
