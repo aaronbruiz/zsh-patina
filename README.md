@@ -166,6 +166,7 @@ The following built-in themes are available:
 |-------|-------------|
 | `patina` | The **default** theme with a balanced color palette |
 | `lavender` | A variant with magenta/lavender tones |
+| `nord` | An arctic, north-bluish color palette. Based on [Nord](https://www.nordtheme.com/). |
 | `simple` | A minimal theme with fewer colors |
 | `tokyonight` | Celebrates the lights of downtown Tokyo at night. Originally by [enkia](https://github.com/tokyo-night/tokyo-night-vscode-theme). |
 

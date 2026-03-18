@@ -170,9 +170,10 @@ impl Highlighter {
             theme
                 .to_syntect(&scope_mapping)
                 .with_context(|| match &config.theme {
-                    ThemeSource::Simple => "Failed to parse simple theme".to_string(),
-                    ThemeSource::Patina => "Failed to parse default theme".to_string(),
                     ThemeSource::Lavender => "Failed to parse lavender theme".to_string(),
+                    ThemeSource::Nord => "Failed to parse nord theme".to_string(),
+                    ThemeSource::Patina => "Failed to parse default theme".to_string(),
+                    ThemeSource::Simple => "Failed to parse simple theme".to_string(),
                     ThemeSource::TokyoNight => "Failed to parse tokyonight theme".to_string(),
                     ThemeSource::File(path) => format!("Failed to parse theme file `{path}'"),
                 })?;

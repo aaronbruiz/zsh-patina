@@ -1,0 +1,50 @@
+# This theme is based on Nord (Copyright (c) 2016-present Sven Greb, released
+# under the MIT license, https://www.nordtheme.com/)
+
+# comments
+"comment" = "#4C566A"
+
+# strings
+"string" = "#A3BE8C"
+
+# regular expressions
+"keyword.operator.regexp" = "#EBCB8B"
+
+# escape characters
+"constant.character.escape" = "#D08770"
+
+# numeric file descriptors
+"constant.numeric.integer.decimal.file-descriptor" = "#B48EAD"
+
+# parameters
+"variable.parameter" = "#8FBCBB"
+
+# environment variables
+"variable.other" = "#EBCB8B"
+"punctuation.definition.variable" = "#EBCB8B"
+
+# commands
+"variable.function" = "#88C0D0"
+
+# home directory ~
+"variable.language.tilde" = "#B48EAD"
+
+# keywords
+"keyword" = "#81A1C1"
+
+# variable assignments
+"storage" = "#81A1C1"
+
+# support terms (e.g. double braces, let)
+"support" = "#8FBCBB"
+
+# function names
+"entity.name.function" = "#D08770"
+
+# braces
+"punctuation.section" = "#5E81AC"
+
+# dynamic items
+"dynamic.callable" = "#88C0D0"
+"dynamic.callable.missing" = "#BF616A"
+"dynamic.path" = { underline = true }
