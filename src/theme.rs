@@ -1,6 +1,6 @@
 use std::{fmt::Formatter, fs, str::FromStr};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use rustc_hash::FxHashMap;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
@@ -198,14 +198,6 @@ impl Theme {
                 .scopes
                 .iter()
                 .map(|s| {
-                    let path = ScopeStack::from_str(s.0)?;
-                    if path.len() > 1 {
-                        bail!(
-                            "Invalid scope `{}'. Scopes must not contain any whitespace.",
-                            s.0
-                        )
-                    }
-
                     let foreground = scope_mapping
                         .encode(s.0)
                         .with_context(|| format!("Missing scope mapping for `{}'", s.0))?;
@@ -217,7 +209,7 @@ impl Theme {
                     Ok(ThemeItem {
                         scope: ScopeSelectors {
                             selectors: vec![ScopeSelector {
-                                path,
+                                path: ScopeStack::from_str(s.0)?,
                                 ..Default::default()
                             }],
                         },

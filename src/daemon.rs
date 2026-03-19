@@ -16,7 +16,7 @@ use std::{
 use crate::{
     Config,
     check::check_config,
-    highlighter::{DynamicStyle, Highlighter, Span, SpanStyle, StaticStyle},
+    highlighting::{DynamicStyle, Highlighter, Span, SpanStyle, StaticStyle},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]

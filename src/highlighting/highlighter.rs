@@ -12,88 +12,12 @@ use syntect::{
     util::LinesWithEndings,
 };
 
+use super::dynamic::*;
+use super::*;
 use crate::{
     HighlightingConfig,
-    path::{PathType, is_path_executable, path_type},
     theme::{ScopeMapping, Style, Theme, ThemeSource},
-    unbackslash::{Sequence, Unbackslash},
 };
-
-const ARGUMENTS: &str = "meta.function-call.arguments.shell";
-const DYNAMIC_PATH_DIRECTORY: &str = "dynamic.path.directory.shell";
-const DYNAMIC_PATH_FILE: &str = "dynamic.path.file.shell";
-
-const CALLABLE: &str = "variable.function.shell";
-const DYNAMIC_CALLABLE_ALIAS: &str = "dynamic.callable.alias.shell";
-const DYNAMIC_CALLABLE_BUILTIN: &str = "dynamic.callable.builtin.shell";
-const DYNAMIC_CALLABLE_COMMAND: &str = "dynamic.callable.command.shell";
-const DYNAMIC_CALLABLE_FUNCTION: &str = "dynamic.callable.function.shell";
-const DYNAMIC_CALLABLE_MISSING: &str = "dynamic.callable.missing.shell";
-
-const CHARACTER_ESCAPE: &str = "constant.character.escape.shell";
-const TILDE: &str = "variable.language.tilde.shell";
-
-/// A span of text with a foreground color. The range is specified in terms of
-/// character indices, not byte indices.
-#[derive(PartialEq, Eq, Debug)]
-pub struct Span {
-    /// The starting character index of the span (inclusive)
-    pub start: usize,
-
-    /// The ending character index of the span (exclusive)
-    pub end: usize,
-
-    /// The span's style
-    pub style: SpanStyle,
-}
-
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct StaticStyle {
-    /// The foreground color of the span
-    pub foreground_color: Option<String>,
-
-    /// The background color of the span
-    pub background_color: Option<String>,
-
-    /// `true` if the text should be shown in bold
-    pub bold: bool,
-
-    /// `true` if the text should be shown underlined
-    pub underline: bool,
-}
-
-#[derive(PartialEq, Eq, Debug)]
-pub enum DynamicStyle {
-    Callable,
-}
-
-#[derive(PartialEq, Eq, Debug)]
-pub enum SpanStyle {
-    Static(StaticStyle),
-    Dynamic(DynamicStyle),
-}
-
-struct Group<'a> {
-    char_range_in_command: Range<usize>,
-    byte_range_in_line: Range<usize>,
-    scope: &'a str,
-}
-
-/// A token with a scope, line and column number, and range in the input command
-/// (byte indices). The line and column numbers are 1-based.
-pub struct Token {
-    /// The scope of the token (e.g. `keyword.control.for.shell`)
-    pub scope: String,
-
-    /// The line number of the token (1-based)
-    pub line: usize,
-
-    /// The column of the token (1-based)
-    pub column: usize,
-
-    /// The range of the token in the input command (byte indices)
-    pub range: Range<usize>,
-}
 
 /// If the command starts with a prefix keyword (e.g. `time`), returns the byte
 /// offset where the rest of the command begins. This can be used to split the
@@ -136,6 +60,74 @@ fn insert_marker_style(theme: &mut Theme, scope: &str) {
     }
 }
 
+fn insert_marker_style_with_fallback(theme: &mut Theme, scope: &str, fallback: &str) {
+    if !theme.contains(scope) {
+        if let Some(style) = theme.resolve(fallback) {
+            theme.insert(scope.to_string(), style);
+        } else {
+            theme.insert(scope.to_string(), Style::default());
+        }
+    }
+}
+
+pub fn update_groups<'a>(
+    scope: &'a str,
+    range: &Range<usize>,
+    groups: &mut Vec<DynamicTokenGroup<'a>>,
+) {
+    // try to extend last group
+    let dynamic_type = match scope {
+        ARGUMENTS | STRING_QUOTED_DOUBLE_ARGUMENTS => {
+            if let Some(group) = groups.last_mut()
+                && group.range.end == range.start
+                && group.dynamic_type != DynamicType::Callable
+            {
+                group.range.end = range.end;
+                group.dynamic_type = DynamicType::Arguments;
+                group.tokens.push(DynamicToken::new(range, scope));
+                None
+            } else {
+                Some(DynamicType::Arguments)
+            }
+        }
+
+        CALLABLE | STRING_QUOTED_DOUBLE_CALLABLE => {
+            if let Some(group) = groups.last_mut()
+                && group.range.end == range.start
+                && group.dynamic_type != DynamicType::Arguments
+            {
+                group.range.end = range.end;
+                group.dynamic_type = DynamicType::Callable;
+                group.tokens.push(DynamicToken::new(range, scope));
+                None
+            } else {
+                Some(DynamicType::Callable)
+            }
+        }
+
+        CHARACTER_ESCAPE => {
+            if let Some(group) = groups.last_mut()
+                && group.range.end == range.start
+            {
+                group.range.end = range.end;
+                group.tokens.push(DynamicToken::new(range, scope));
+                None
+            } else {
+                Some(DynamicType::Unknown(CHARACTER_ESCAPE))
+            }
+        }
+
+        TILDE => Some(DynamicType::Unknown(TILDE)),
+
+        _ => None,
+    };
+
+    // create new group if necessary
+    if let Some(dynamic_type) = dynamic_type {
+        groups.push(DynamicTokenGroup::new(range, dynamic_type, scope));
+    }
+}
+
 pub struct Highlighter {
     max_line_length: usize,
     timeout: Duration,
@@ -163,6 +155,16 @@ impl Highlighter {
         insert_marker_style(&mut theme, ARGUMENTS);
         insert_marker_style(&mut theme, CHARACTER_ESCAPE);
         insert_marker_style(&mut theme, TILDE);
+        insert_marker_style_with_fallback(
+            &mut theme,
+            STRING_QUOTED_DOUBLE_CALLABLE,
+            STRING_QUOTED_DOUBLE,
+        );
+        insert_marker_style_with_fallback(
+            &mut theme,
+            STRING_QUOTED_DOUBLE_ARGUMENTS,
+            STRING_QUOTED_DOUBLE,
+        );
 
         let scope_mapping = ScopeMapping::new(&theme);
 
@@ -271,9 +273,8 @@ impl Highlighter {
 
             let ranges = h.highlight_line(line, &self.syntax_set)?;
 
-            let mut group: Option<Group> = None;
+            let mut groups = Vec::new();
 
-            let mut bi = 0;
             for r in ranges {
                 if r.1.is_empty() {
                     continue;
@@ -285,203 +286,21 @@ impl Highlighter {
 
                 if let Some(scope) = self.scope_mapping.decode(&r.0.foreground) {
                     let range = i..i + len;
-                    let byte_range = bi..bi + r.1.len();
-
                     if predicate(&range) {
-                        match scope {
-                            ARGUMENTS | CALLABLE => {
-                                if let Some(group) = &mut group
-                                    && group.byte_range_in_line.end == bi
-                                    && (group.scope == scope
-                                        || group.scope == CHARACTER_ESCAPE
-                                        || group.scope == TILDE)
-                                    && !r.1.as_bytes()[0].is_ascii_whitespace()
-                                {
-                                    group.byte_range_in_line.end = byte_range.end;
-                                    group.char_range_in_command.end = range.end;
-                                    group.scope = scope;
-                                } else {
-                                    self.flush_group(&mut group, line, pwd, &mut result);
-                                    group = Some(Group {
-                                        char_range_in_command: range,
-                                        byte_range_in_line: byte_range,
-                                        scope,
-                                    });
-                                }
-                            }
-
-                            CHARACTER_ESCAPE => {
-                                if let Some(group) = &mut group
-                                    && group.byte_range_in_line.end == bi
-                                    && (group.scope == ARGUMENTS
-                                        || group.scope == CALLABLE
-                                        || group.scope == CHARACTER_ESCAPE
-                                        || group.scope == TILDE)
-                                {
-                                    group.byte_range_in_line.end = byte_range.end;
-                                    group.char_range_in_command.end = range.end;
-                                } else {
-                                    self.flush_group(&mut group, line, pwd, &mut result);
-                                    group = Some(Group {
-                                        char_range_in_command: range,
-                                        byte_range_in_line: byte_range,
-                                        scope: CHARACTER_ESCAPE,
-                                    });
-                                }
-                            }
-
-                            TILDE => {
-                                self.flush_group(&mut group, line, pwd, &mut result);
-                                group = Some(Group {
-                                    char_range_in_command: range,
-                                    byte_range_in_line: byte_range,
-                                    scope: TILDE,
-                                });
-                            }
-
-                            _ => {
-                                self.flush_group(&mut group, line, pwd, &mut result);
-                                self.highlight_other(range, scope, &mut result);
-                            }
-                        }
+                        update_groups(scope, &range, &mut groups);
+                        self.highlight_other(range, scope, &mut result);
                     }
                 }
 
                 i += len;
-                bi += r.1.len();
             }
 
-            self.flush_group(&mut group, line, pwd, &mut result);
+            // TODO process all groups and update result
+            // println!("GROUPS: {groups:?}");
+            // println!("RESULT {result:?}");
         }
 
         Ok(result)
-    }
-
-    fn flush_group(
-        &self,
-        group: &mut Option<Group>,
-        line: &str,
-        pwd: Option<&str>,
-        result: &mut Vec<Span>,
-    ) {
-        if let Some(group) = group.take() {
-            match group.scope {
-                ARGUMENTS => self.highlight_arguments(
-                    &line[group.byte_range_in_line],
-                    group.char_range_in_command,
-                    pwd,
-                    result,
-                ),
-
-                CALLABLE => self.highlight_callable(
-                    &line[group.byte_range_in_line],
-                    group.char_range_in_command,
-                    pwd,
-                    result,
-                ),
-
-                _ => self.highlight_other(group.char_range_in_command, group.scope, result),
-            }
-        }
-    }
-
-    fn highlight_arguments(
-        &self,
-        token: &str,
-        range: Range<usize>,
-        pwd: Option<&str>,
-        result: &mut Vec<Span>,
-    ) {
-        // highlighting argument is only necessary if we have a current working
-        // directory
-        let Some(pwd) = pwd else {
-            // fallback to static styling
-            if let Some(style) = resolve_static_style(ARGUMENTS, &self.theme) {
-                result.push(Span {
-                    start: range.start,
-                    end: range.end,
-                    style: SpanStyle::Static(style),
-                });
-            }
-            return;
-        };
-
-        // split the current token into sub-tokens of consecutive whitespaces or
-        // consecutive non-whitespaces
-        let mut start = 0;
-        for seq in token.unbackslash_split() {
-            let (style, len) = match seq {
-                Sequence::Word {
-                    chars: w,
-                    original_len,
-                } => {
-                    let s = if let Some(t) = path_type(&w, pwd) {
-                        // every non-whitespace sequence that is a path should
-                        // be highlighted with the dynamic path style
-                        let dynamic_scope = match t {
-                            PathType::File => DYNAMIC_PATH_FILE,
-                            PathType::Directory => DYNAMIC_PATH_DIRECTORY,
-                        };
-                        resolve_static_style(dynamic_scope, &self.theme)
-                    } else {
-                        None
-                    };
-                    (s, original_len)
-                }
-
-                Sequence::Whitespace(w) => (None, w.chars().count()),
-            };
-
-            let style = style.or_else(|| {
-                // fallback to the normal style for this token
-                resolve_static_style(ARGUMENTS, &self.theme)
-            });
-
-            if let Some(style) = style {
-                result.push(Span {
-                    start: range.start + start,
-                    end: range.start + start + len,
-                    style: SpanStyle::Static(style),
-                });
-            }
-
-            start += len;
-        }
-    }
-
-    fn highlight_callable(
-        &self,
-        token: &str,
-        range: Range<usize>,
-        pwd: Option<&str>,
-        result: &mut Vec<Span>,
-    ) {
-        let style = if let Some(pwd) = pwd
-            && token.contains('/')
-            && is_path_executable(&token.unbackslash(), pwd)
-        {
-            // We have a current working directory and the token is a path to an
-            // executable. Highlight it as a command if this style is available
-            // or fall back to the static style for callables.
-            if let Some(style) = resolve_static_style(DYNAMIC_CALLABLE_COMMAND, &self.theme) {
-                Some(SpanStyle::Static(style))
-            } else {
-                resolve_static_style(CALLABLE, &self.theme).map(SpanStyle::Static)
-            }
-        } else {
-            // highlight the token as a dynamic callable and let the Zsh client
-            // script decide whether it is an alias, a builtin, a command, or a
-            // function
-            Some(SpanStyle::Dynamic(DynamicStyle::Callable))
-        };
-
-        if let Some(style) = style {
-            result.push(Span {
-                start: range.start,
-                end: range.end,
-                style,
-            });
-        }
     }
 
     fn highlight_other(&self, range: Range<usize>, scope: &str, result: &mut Vec<Span>) {
@@ -602,10 +421,14 @@ impl Highlighter {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{
+        fs::{self, Permissions},
+        os::unix::fs::PermissionsExt,
+    };
 
     use super::*;
     use anyhow::Result;
+    use pretty_assertions::assert_eq;
 
     fn test_config() -> HighlightingConfig {
         HighlightingConfig::default()
@@ -824,6 +647,72 @@ mod tests {
                 start: 0,
                 end: 2,
                 style: SpanStyle::Dynamic(DynamicStyle::Callable)
+            }]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn quoted_callable() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+
+        let highlighter = Highlighter::new(&test_config())?;
+
+        let highlighted =
+            highlighter.highlight("\"ls\"", Some(dir.path().to_str().unwrap()), |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 4,
+                style: SpanStyle::Dynamic(DynamicStyle::Callable)
+            }]
+        );
+
+        let highlighted =
+            highlighter.highlight("l\"s\"", Some(dir.path().to_str().unwrap()), |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 4,
+                style: SpanStyle::Dynamic(DynamicStyle::Callable)
+            }]
+        );
+
+        let file_path = dir.path().join("script.sh");
+        fs::write(&file_path, "#!/bin/sh")?;
+        fs::set_permissions(&file_path, Permissions::from_mode(0o755))?;
+
+        let dynamic_callable_style =
+            resolve_static_style(DYNAMIC_CALLABLE_COMMAND, &highlighter.theme).unwrap();
+
+        let highlighted = highlighter.highlight(
+            "\"./script.sh\"",
+            Some(dir.path().to_str().unwrap()),
+            |_| true,
+        )?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 13,
+                style: SpanStyle::Static(dynamic_callable_style.clone())
+            }]
+        );
+
+        let directory_path = dir.path().join("foo/bar");
+        fs::create_dir_all(&directory_path)?;
+
+        let highlighted =
+            highlighter.highlight("foo/\"bar\"/", Some(dir.path().to_str().unwrap()), |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 10,
+                style: SpanStyle::Static(dynamic_callable_style)
             }]
         );
 

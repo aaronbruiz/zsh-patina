@@ -18,17 +18,18 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use crate::{
     check::check_config,
     daemon::{activate, start_daemon, status_daemon, stop_daemon},
-    highlighter::{Highlighter, Token},
+    highlighting::{Highlighter, Token},
     theme::{Theme, ThemeSource},
 };
 
 mod check;
 mod color;
 mod daemon;
-mod highlighter;
+mod highlighting;
 mod path;
 mod theme;
 mod unbackslash;
+mod unescape;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
