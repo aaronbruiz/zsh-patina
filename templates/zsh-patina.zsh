@@ -1,3 +1,12 @@
+# WARNING: Do not cache or source this file manually. Its contents are generated
+# automatically when zsh-patina is started via the `activate` command. To set up
+# zsh-patina, add the following to your .zshrc:
+#
+#   eval "$(zsh-patina activate)"
+#
+# For more details, see the README:
+# https://github.com/michel-kraemer/zsh-patina#how-to-install
+
 zsh-patina() {
     "<{zsh_patina_path}>" "$@"
 }
