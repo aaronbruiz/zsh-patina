@@ -28,7 +28,6 @@ mod daemon;
 mod highlighting;
 mod path;
 mod theme;
-mod unbackslash;
 mod unescape;
 
 #[derive(Parser, Debug)]

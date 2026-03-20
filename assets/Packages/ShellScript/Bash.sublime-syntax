@@ -1384,7 +1384,7 @@ contexts:
           scope: punctuation.definition.string.end.shell
           pop: true
         - include: string-quoted-double-escape-character
-        - match: \\([abfnrtv'"?]|[0-8]{1,3}|x\h{1,8}|c[a-z])
+        - match: \\([abfnrtv'"?]|[0-8]{1,3}|x\h{1,2}|c[a-z]|U\h{1,8}|u\h{1,4})
           scope: constant.character.escape.shell
 
   # [Bash] 3.1.2.5

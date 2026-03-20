@@ -14,8 +14,12 @@ pub enum DynamicScope {
     Arguments,
     Callable,
     CharacterEscape,
-    StringQuotedBegin,
-    StringQuotedEnd,
+    CharacterEscapeArguments,
+    CharacterEscapeQuotedAnsi,
+    StringQuotedBeginArguments,
+    StringQuotedBeginCallable,
+    StringQuotedEndArguments,
+    StringQuotedEndCallable,
     StringQuotedSingleArguments,
     StringQuotedSingleCallable,
     StringQuotedSingleAnsiArguments,
@@ -32,8 +36,12 @@ impl DynamicScope {
             DynamicScope::Arguments => ARGUMENTS,
             DynamicScope::Callable => CALLABLE,
             DynamicScope::CharacterEscape => CHARACTER_ESCAPE,
-            DynamicScope::StringQuotedBegin => STRING_QUOTED_BEGIN,
-            DynamicScope::StringQuotedEnd => STRING_QUOTED_END,
+            DynamicScope::CharacterEscapeArguments => CHARACTER_ESCAPE_ARGUMENTS,
+            DynamicScope::CharacterEscapeQuotedAnsi => CHARACTER_ESCAPE_QUOTED_ANSI,
+            DynamicScope::StringQuotedBeginArguments => STRING_QUOTED_BEGIN_ARGUMENTS,
+            DynamicScope::StringQuotedBeginCallable => STRING_QUOTED_BEGIN_CALLABLE,
+            DynamicScope::StringQuotedEndArguments => STRING_QUOTED_END_ARGUMENTS,
+            DynamicScope::StringQuotedEndCallable => STRING_QUOTED_END_CALLABLE,
             DynamicScope::StringQuotedSingleArguments => STRING_QUOTED_SINGLE_ARGUMENTS,
             DynamicScope::StringQuotedSingleCallable => STRING_QUOTED_SINGLE_CALLABLE,
             DynamicScope::StringQuotedSingleAnsiArguments => STRING_QUOTED_SINGLE_ANSI_ARGUMENTS,
@@ -54,8 +62,12 @@ impl TryFrom<&str> for DynamicScope {
             ARGUMENTS => Ok(DynamicScope::Arguments),
             CALLABLE => Ok(DynamicScope::Callable),
             CHARACTER_ESCAPE => Ok(DynamicScope::CharacterEscape),
-            STRING_QUOTED_BEGIN => Ok(DynamicScope::StringQuotedBegin),
-            STRING_QUOTED_END => Ok(DynamicScope::StringQuotedEnd),
+            CHARACTER_ESCAPE_ARGUMENTS => Ok(DynamicScope::CharacterEscapeArguments),
+            CHARACTER_ESCAPE_QUOTED_ANSI => Ok(DynamicScope::CharacterEscapeQuotedAnsi),
+            STRING_QUOTED_BEGIN_ARGUMENTS => Ok(DynamicScope::StringQuotedBeginArguments),
+            STRING_QUOTED_BEGIN_CALLABLE => Ok(DynamicScope::StringQuotedBeginCallable),
+            STRING_QUOTED_END_ARGUMENTS => Ok(DynamicScope::StringQuotedEndArguments),
+            STRING_QUOTED_END_CALLABLE => Ok(DynamicScope::StringQuotedEndCallable),
             STRING_QUOTED_SINGLE_ARGUMENTS => Ok(DynamicScope::StringQuotedSingleArguments),
             STRING_QUOTED_SINGLE_CALLABLE => Ok(DynamicScope::StringQuotedSingleCallable),
             STRING_QUOTED_SINGLE_ANSI_ARGUMENTS => {
@@ -131,7 +143,7 @@ impl DynamicTokenGroup {
 
         let parsed = self.parse(line)?;
         for (p, range) in parsed.into_iter().take(1) {
-            let span_style = if is_path_executable(&p, pwd) {
+            let span_style = if p.contains('/') && is_path_executable(&p, pwd) {
                 if let Some(style) = resolve_static_style(DYNAMIC_CALLABLE_COMMAND, theme) {
                     Some(SpanStyle::Static(style))
                 } else {
@@ -182,7 +194,23 @@ impl DynamicTokenGroup {
         let mut s = String::new();
         let mut start = self.range.start;
         let mut end = start;
+        let mut utf8_buf: Vec<u8> = Vec::new();
+
+        let flush_utf8 = |buf: &mut Vec<u8>, s: &mut String| -> Result<()> {
+            if !buf.is_empty() {
+                let decoded = std::str::from_utf8(buf)
+                    .with_context(|| format!("Invalid UTF-8 byte sequence: {buf:02x?}"))?;
+                s.push_str(decoded);
+                buf.clear();
+            }
+            Ok(())
+        };
+
         for t in &self.tokens {
+            if t.scope != DynamicScope::CharacterEscapeQuotedAnsi && !utf8_buf.is_empty() {
+                flush_utf8(&mut utf8_buf, &mut s)?;
+            }
+
             match t.scope {
                 DynamicScope::Arguments => {
                     let mut args = line[t.byte_range.clone()].chars().peekable();
@@ -232,18 +260,30 @@ impl DynamicTokenGroup {
                     end += len;
                 }
 
-                DynamicScope::CharacterEscape => {
+                DynamicScope::CharacterEscapeArguments | DynamicScope::CharacterEscape => {
                     let c = &line[t.byte_range.clone()];
                     let len = c.chars().count();
-                    s.push(c.zsh_unescape_one()?);
+                    s.push_str(&c[1..]); // trim leading '\'
                     end += len;
                 }
 
-                DynamicScope::StringQuotedBegin => {
+                DynamicScope::CharacterEscapeQuotedAnsi => {
+                    let c = &line[t.byte_range.clone()];
+                    let len = c.chars().count();
+                    if let Some(byte) = c.zsh_unescape_utf8_byte()? {
+                        utf8_buf.push(byte);
+                    } else {
+                        s.push(c.zsh_unescape_char()?);
+                    }
+                    end += len;
+                }
+
+                DynamicScope::StringQuotedBeginArguments
+                | DynamicScope::StringQuotedBeginCallable => {
                     end += line[t.byte_range.clone()].chars().count();
                 }
 
-                DynamicScope::StringQuotedEnd => {
+                DynamicScope::StringQuotedEndArguments | DynamicScope::StringQuotedEndCallable => {
                     end += 1;
                 }
 
@@ -263,6 +303,7 @@ impl DynamicTokenGroup {
                 }
             }
         }
+        flush_utf8(&mut utf8_buf, &mut s)?;
         if !s.is_empty() {
             result.push((s, start..end));
         }

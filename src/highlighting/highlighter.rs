@@ -68,6 +68,9 @@ pub fn update_groups(
         | STRING_QUOTED_SINGLE_ARGUMENTS
         | STRING_QUOTED_SINGLE_ANSI_ARGUMENTS
         | STRING_QUOTED_DOUBLE_ARGUMENTS
+        | STRING_QUOTED_BEGIN_ARGUMENTS
+        | STRING_QUOTED_END_ARGUMENTS
+        | CHARACTER_ESCAPE_ARGUMENTS
         | TILDE_ARGUMENTS => {
             if let Some(group) = groups.last_mut()
                 && group.range.end == range.start
@@ -89,6 +92,8 @@ pub fn update_groups(
         | STRING_QUOTED_SINGLE_CALLABLE
         | STRING_QUOTED_SINGLE_ANSI_CALLABLE
         | STRING_QUOTED_DOUBLE_CALLABLE
+        | STRING_QUOTED_BEGIN_CALLABLE
+        | STRING_QUOTED_END_CALLABLE
         | TILDE_CALLABLE => {
             if let Some(group) = groups.last_mut()
                 && group.range.end == range.start
@@ -106,7 +111,9 @@ pub fn update_groups(
             }
         }
 
-        CHARACTER_ESCAPE | STRING_QUOTED_BEGIN | STRING_QUOTED_END => {
+        // parser cannot differentiate between normal unquoted character escapes
+        // and those that are at the beginning of a callable
+        CHARACTER_ESCAPE => {
             if let Some(group) = groups.last_mut()
                 && group.range.end == range.start
             {
@@ -119,6 +126,21 @@ pub fn update_groups(
             } else {
                 DynamicType::Unknown
             }
+        }
+
+        // this can only happen if we're inside an ANSI-quoted string, so we
+        // already know if the group is a command or arguments
+        CHARACTER_ESCAPE_QUOTED_ANSI => {
+            if let Some(group) = groups.last_mut()
+                && group.range.end == range.start
+            {
+                group.range.end = range.end;
+                group.byte_range.end = byte_range.end;
+                group
+                    .tokens
+                    .push(DynamicToken::new(range, byte_range, dynamic_scope));
+            }
+            return;
         }
 
         _ => return,
@@ -239,6 +261,16 @@ impl Highlighter {
         // Do the same for other scopes
         insert_marker_style(&mut theme, ARGUMENTS);
         insert_marker_style(&mut theme, CHARACTER_ESCAPE);
+        insert_marker_style_with_fallback(
+            &mut theme,
+            CHARACTER_ESCAPE_ARGUMENTS,
+            &[CHARACTER_ESCAPE],
+        );
+        insert_marker_style_with_fallback(
+            &mut theme,
+            CHARACTER_ESCAPE_QUOTED_ANSI,
+            &[CHARACTER_ESCAPE],
+        );
         insert_marker_style_with_fallback(&mut theme, TILDE_ARGUMENTS, &[TILDE]);
         insert_marker_style_with_fallback(&mut theme, TILDE_CALLABLE, &[TILDE]);
         insert_marker_style_with_fallback(
@@ -273,12 +305,22 @@ impl Highlighter {
         );
         insert_marker_style_with_fallback(
             &mut theme,
-            STRING_QUOTED_BEGIN,
+            STRING_QUOTED_BEGIN_CALLABLE,
             &[STRING_QUOTED_BEGIN, STRING_QUOTED_DOUBLE],
         );
         insert_marker_style_with_fallback(
             &mut theme,
-            STRING_QUOTED_END,
+            STRING_QUOTED_BEGIN_ARGUMENTS,
+            &[STRING_QUOTED_BEGIN, STRING_QUOTED_DOUBLE],
+        );
+        insert_marker_style_with_fallback(
+            &mut theme,
+            STRING_QUOTED_END_CALLABLE,
+            &[STRING_QUOTED_END, STRING_QUOTED_DOUBLE],
+        );
+        insert_marker_style_with_fallback(
+            &mut theme,
+            STRING_QUOTED_END_ARGUMENTS,
             &[STRING_QUOTED_END, STRING_QUOTED_DOUBLE],
         );
 
@@ -1106,6 +1148,505 @@ mod tests {
                 end: 10,
                 style: SpanStyle::Static(dynamic_callable_style)
             }]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn escape_unquoted_at_beginning() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let test_path = dir.path().join("test.txt");
+        fs::write(test_path, "test contents")?;
+        let script_path = dir.path().join("script.sh");
+        fs::write(&script_path, "#!/bin/sh")?;
+        fs::set_permissions(&script_path, Permissions::from_mode(0o755))?;
+        let s_path = dir.path().join("s");
+        fs::write(&s_path, "#!/bin/sh")?;
+        fs::set_permissions(&s_path, Permissions::from_mode(0o755))?;
+        let pwd = Some(dir.path().to_str().unwrap());
+
+        let highlighter = Highlighter::new(&test_config())?;
+        let escape_style = resolve_static_style(CHARACTER_ESCAPE, &highlighter.theme).unwrap();
+        let dynamic_callable_style =
+            resolve_static_style(DYNAMIC_CALLABLE_COMMAND, &highlighter.theme).unwrap();
+        let dynamic_file_style =
+            resolve_static_style(DYNAMIC_PATH_FILE, &highlighter.theme).unwrap();
+        let dynamic_escape_file_style = mix_styles(
+            &SpanStyle::Static(escape_style.clone()),
+            &SpanStyle::Static(dynamic_file_style.clone()),
+        );
+
+        let highlighted = highlighter.highlight(r"\script.sh", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 10,
+                style: SpanStyle::Dynamic(DynamicStyle::Callable)
+            }]
+        );
+
+        let highlighted = highlighter.highlight(r"\./script.sh", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 12,
+                style: SpanStyle::Static(dynamic_callable_style.clone())
+            }]
+        );
+
+        // parser cannot differentiate between normal unquoted character escapes
+        // and those that are at the beginning of a callable
+        let highlighted = highlighter.highlight(r"\s", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 2,
+                style: SpanStyle::Static(escape_style.clone())
+            }]
+        );
+
+        let highlighted = highlighter.highlight(r"touch \test.txt", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 5,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 6,
+                    end: 8,
+                    style: dynamic_escape_file_style.clone()
+                },
+                Span {
+                    start: 8,
+                    end: 15,
+                    style: SpanStyle::Static(dynamic_file_style.clone())
+                }
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn path_with_escape_unquoted() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let pwd = Some(dir.path().to_str().unwrap());
+
+        let highlighter = Highlighter::new(&test_config())?;
+        let dynamic_file_style =
+            resolve_static_style(DYNAMIC_PATH_FILE, &highlighter.theme).unwrap();
+        let escape_style = resolve_static_style(CHARACTER_ESCAPE, &highlighter.theme).unwrap();
+        let dynamic_escape_file_style = mix_styles(
+            &SpanStyle::Static(escape_style.clone()),
+            &SpanStyle::Static(dynamic_file_style.clone()),
+        );
+
+        let highlighted = highlighter.highlight(r"cp test\u2580.txt dest.txt", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 7,
+                    end: 9,
+                    style: SpanStyle::Static(escape_style.clone())
+                }
+            ]
+        );
+
+        let test_path = dir.path().join("testu2580.txt");
+        fs::write(test_path, "test contents")?;
+
+        let highlighted = highlighter.highlight(r"cp test\u2580.txt dest.txt", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 7,
+                    style: SpanStyle::Static(dynamic_file_style.clone())
+                },
+                Span {
+                    start: 7,
+                    end: 9,
+                    style: dynamic_escape_file_style.clone()
+                },
+                Span {
+                    start: 9,
+                    end: 17,
+                    style: SpanStyle::Static(dynamic_file_style.clone())
+                }
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn path_with_escape_quoted() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let test_path = dir.path().join("test▀.txt");
+        fs::write(test_path, "test contents")?;
+        let test_path1 = dir.path().join("test  1.txt");
+        fs::write(test_path1, "test contents")?;
+        let pwd = Some(dir.path().to_str().unwrap());
+
+        let highlighter = Highlighter::new(&test_config())?;
+        let dynamic_file_style =
+            resolve_static_style(DYNAMIC_PATH_FILE, &highlighter.theme).unwrap();
+        let string_style = resolve_static_style(STRING_QUOTED_DOUBLE, &highlighter.theme).unwrap();
+        let escape_style = resolve_static_style(CHARACTER_ESCAPE, &highlighter.theme).unwrap();
+        let dynamic_string_file_style = mix_styles(
+            &SpanStyle::Static(string_style.clone()),
+            &SpanStyle::Static(dynamic_file_style.clone()),
+        );
+        let dynamic_escape_file_style = mix_styles(
+            &SpanStyle::Static(escape_style.clone()),
+            &SpanStyle::Static(dynamic_file_style.clone()),
+        );
+
+        let highlighted = highlighter.highlight(r"cp test\u2580.txt dest.txt", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 7,
+                    end: 9,
+                    style: SpanStyle::Static(escape_style.clone())
+                }
+            ]
+        );
+
+        let highlighted =
+            highlighter.highlight(r#"cp "test\u2580.txt" dest.txt"#, pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 19,
+                    style: SpanStyle::Static(string_style.clone())
+                }
+            ]
+        );
+
+        let highlighted =
+            highlighter.highlight(r#"cp 'test\u2580.txt' dest.txt"#, pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 19,
+                    style: SpanStyle::Static(string_style.clone())
+                }
+            ]
+        );
+
+        let highlighted =
+            highlighter.highlight(r#"cp $'test\u2580.txt' dest.txt"#, pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 9,
+                    style: dynamic_string_file_style.clone(),
+                },
+                Span {
+                    start: 9,
+                    end: 15,
+                    style: dynamic_escape_file_style.clone()
+                },
+                Span {
+                    start: 15,
+                    end: 20,
+                    style: dynamic_string_file_style.clone(),
+                }
+            ]
+        );
+
+        let highlighted = highlighter.highlight(r#"cp test\ \ 1.txt dest.txt"#, pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 7,
+                    style: SpanStyle::Static(dynamic_file_style.clone())
+                },
+                Span {
+                    start: 7,
+                    end: 11,
+                    style: dynamic_escape_file_style.clone()
+                },
+                Span {
+                    start: 11,
+                    end: 16,
+                    style: SpanStyle::Static(dynamic_file_style.clone())
+                }
+            ]
+        );
+
+        let highlighted = highlighter.highlight(r#"cp "test\ \ 1.txt" dest.txt"#, pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 18,
+                    style: SpanStyle::Static(string_style.clone())
+                }
+            ]
+        );
+
+        let highlighted =
+            highlighter.highlight(r#"cp $'test\ \ 1.txt' dest.txt"#, pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 19,
+                    style: SpanStyle::Static(string_style.clone())
+                }
+            ]
+        );
+
+        let highlighted =
+            highlighter.highlight(r#"cp $'test\x20\x201.txt' dest.txt"#, pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 9,
+                    style: dynamic_string_file_style.clone()
+                },
+                Span {
+                    start: 9,
+                    end: 17,
+                    style: dynamic_escape_file_style.clone()
+                },
+                Span {
+                    start: 17,
+                    end: 23,
+                    style: dynamic_string_file_style.clone()
+                }
+            ]
+        );
+
+        let highlighted =
+            highlighter.highlight(r#"cp test$'\x20\x20'1.txt dest.txt"#, pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 7,
+                    style: SpanStyle::Static(dynamic_file_style.clone())
+                },
+                Span {
+                    start: 7,
+                    end: 9,
+                    style: dynamic_string_file_style.clone()
+                },
+                Span {
+                    start: 9,
+                    end: 17,
+                    style: dynamic_escape_file_style.clone()
+                },
+                Span {
+                    start: 17,
+                    end: 18,
+                    style: dynamic_string_file_style.clone()
+                },
+                Span {
+                    start: 18,
+                    end: 23,
+                    style: SpanStyle::Static(dynamic_file_style.clone())
+                }
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn command_with_multibyte_escape() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let subdir = dir.path().join("sub");
+        fs::create_dir_all(&subdir)?;
+        let test_path = subdir.join("test😎.sh");
+        fs::write(&test_path, "#!/bin/sh")?;
+        fs::set_permissions(&test_path, Permissions::from_mode(0o755))?;
+        let pwd = Some(dir.path().to_str().unwrap());
+
+        let highlighter = Highlighter::new(&test_config())?;
+        let dynamic_command_style =
+            resolve_static_style(DYNAMIC_CALLABLE_COMMAND, &highlighter.theme).unwrap();
+
+        let highlighted =
+            highlighter.highlight(r"$'sub/test\xF0\x9F\x98\x8E.sh'", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 30,
+                style: SpanStyle::Static(dynamic_command_style.clone())
+            }]
+        );
+
+        let highlighted =
+            highlighter.highlight(r"$'sub/test\xF0\237\x98\x8E.sh'", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 30,
+                style: SpanStyle::Static(dynamic_command_style.clone())
+            }]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn path_with_multibyte_escape() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let test_path = dir.path().join("test😎.txt");
+        fs::write(test_path, "test contents")?;
+        let pwd = Some(dir.path().to_str().unwrap());
+
+        let highlighter = Highlighter::new(&test_config())?;
+        let dynamic_file_style =
+            resolve_static_style(DYNAMIC_PATH_FILE, &highlighter.theme).unwrap();
+        let string_style = resolve_static_style(STRING_QUOTED_DOUBLE, &highlighter.theme).unwrap();
+        let escape_style = resolve_static_style(CHARACTER_ESCAPE, &highlighter.theme).unwrap();
+        let dynamic_string_file_style = mix_styles(
+            &SpanStyle::Static(string_style.clone()),
+            &SpanStyle::Static(dynamic_file_style.clone()),
+        );
+        let dynamic_escape_file_style = mix_styles(
+            &SpanStyle::Static(escape_style.clone()),
+            &SpanStyle::Static(dynamic_file_style.clone()),
+        );
+
+        let highlighted =
+            highlighter.highlight(r"cp $'test\xF0\x9F\x98\x8E.txt' dest.txt", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 9,
+                    style: dynamic_string_file_style.clone(),
+                },
+                Span {
+                    start: 9,
+                    end: 25,
+                    style: dynamic_escape_file_style.clone(),
+                },
+                Span {
+                    start: 25,
+                    end: 30,
+                    style: dynamic_string_file_style.clone(),
+                }
+            ]
+        );
+
+        let highlighted =
+            highlighter.highlight(r"cp $'test\xF0\237\x98\x8E.txt' dest.txt", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Dynamic(DynamicStyle::Callable)
+                },
+                Span {
+                    start: 3,
+                    end: 9,
+                    style: dynamic_string_file_style.clone(),
+                },
+                Span {
+                    start: 9,
+                    end: 25,
+                    style: dynamic_escape_file_style.clone(),
+                },
+                Span {
+                    start: 25,
+                    end: 30,
+                    style: dynamic_string_file_style.clone(),
+                }
+            ]
         );
 
         Ok(())
