@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::{Config, theme::Theme};
+use crate::{config::Config, theme::Theme};
 
 pub fn check_config(config: &Config) -> Result<()> {
     // At this point, it has already been checked if the program's main

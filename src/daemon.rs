@@ -14,8 +14,8 @@ use std::{
 };
 
 use crate::{
-    Config,
     check::check_config,
+    config::Config,
     highlighting::{DynamicStyle, Highlighter, Span, SpanStyle, StaticStyle},
 };
 

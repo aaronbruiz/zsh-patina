@@ -15,8 +15,8 @@ use syntect::{
 
 use super::*;
 use crate::{
-    HighlightingConfig,
-    highlighting::dynamic::{DynamicScopes, DynamicTokenGroupBuilder},
+    config::HighlightingConfig,
+    highlighting::dynamic::{DynamicScopes, DynamicTokenGroupBuilder, DynamicType},
     theme::{ScopeMapping, Theme, ThemeSource},
 };
 
@@ -117,7 +117,8 @@ fn mix_styles(base: &SpanStyle, mixin: &SpanStyle) -> SpanStyle {
 pub struct Highlighter {
     max_line_length: usize,
     timeout: Duration,
-    dynamic_enabled: bool,
+    dynamic_callables_enabled: bool,
+    dynamic_arguments_enabled: bool,
     syntax_set: SyntaxSet,
     theme: Theme,
     scope_mapping: ScopeMapping,
@@ -177,7 +178,8 @@ impl Highlighter {
         Ok(Self {
             max_line_length: config.max_line_length,
             timeout: config.timeout,
-            dynamic_enabled: config.dynamic,
+            dynamic_callables_enabled: config.dynamic.callables,
+            dynamic_arguments_enabled: config.dynamic.paths,
             syntax_set,
             theme,
             scope_mapping,
@@ -272,11 +274,13 @@ impl Highlighter {
             }
 
             // perform dynamic highlighting
-            if self.dynamic_enabled
+            if (self.dynamic_callables_enabled || self.dynamic_arguments_enabled)
                 && let Some(pwd) = pwd
             {
                 for g in dynamic_builder.build(&ops, byte_offset) {
-                    if let Ok(group_spans) = g.highlight(command, pwd, &self.theme) {
+                    if self.should_highlight_dynamic(&g.dynamic_type)
+                        && let Ok(group_spans) = g.highlight(command, pwd, &self.theme)
+                    {
                         mixins.extend(group_spans);
                     }
                 }
@@ -286,11 +290,13 @@ impl Highlighter {
         }
 
         // perform dynamic highlighting for the remaining groups
-        if self.dynamic_enabled
+        if (self.dynamic_callables_enabled || self.dynamic_arguments_enabled)
             && let Some(pwd) = pwd
         {
             for g in dynamic_builder.finish(byte_offset) {
-                if let Ok(group_spans) = g.highlight(command, pwd, &self.theme) {
+                if self.should_highlight_dynamic(&g.dynamic_type)
+                    && let Ok(group_spans) = g.highlight(command, pwd, &self.theme)
+                {
                     mixins.extend(group_spans);
                 }
             }
@@ -311,6 +317,14 @@ impl Highlighter {
                 end: range.end,
                 style: SpanStyle::Static(style),
             });
+        }
+    }
+
+    fn should_highlight_dynamic(&self, dynamic_type: &DynamicType) -> bool {
+        match dynamic_type {
+            DynamicType::Unknown => true,
+            DynamicType::Callable => self.dynamic_callables_enabled,
+            DynamicType::Arguments => self.dynamic_arguments_enabled,
         }
     }
 
@@ -427,6 +441,8 @@ mod tests {
         os::unix::fs::PermissionsExt,
     };
 
+    use crate::config::DynamicConfig;
+
     use super::*;
     use anyhow::Result;
     use pretty_assertions::assert_eq;
@@ -507,7 +523,10 @@ mod tests {
         let pwd = Some(dir.path().to_str().unwrap());
 
         let mut config = test_config();
-        config.dynamic = false;
+        config.dynamic = DynamicConfig {
+            callables: false,
+            paths: false,
+        };
         let highlighter = Highlighter::new(&config)?;
         let callable_style = resolve_static_style(CALLABLE, &highlighter.theme).unwrap();
 
@@ -517,8 +536,51 @@ mod tests {
             vec![Span {
                 start: 0,
                 end: 2,
-                style: SpanStyle::Static(callable_style)
+                style: SpanStyle::Static(callable_style.clone())
             }]
+        );
+
+        config.dynamic = DynamicConfig {
+            callables: true,
+            paths: false,
+        };
+        let highlighter = Highlighter::new(&config)?;
+
+        let highlighted = highlighter.highlight("ls test.txt", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![Span {
+                start: 0,
+                end: 2,
+                style: SpanStyle::Dynamic(DynamicStyle::Callable {
+                    parsed_callable: "ls".to_string()
+                })
+            }]
+        );
+
+        config.dynamic = DynamicConfig {
+            callables: false,
+            paths: true,
+        };
+        let highlighter = Highlighter::new(&config)?;
+        let dynamic_file_style =
+            resolve_static_style(DYNAMIC_PATH_FILE, &highlighter.theme).unwrap();
+
+        let highlighted = highlighter.highlight("ls test.txt", pwd, |_| true)?;
+        assert_eq!(
+            highlighted,
+            vec![
+                Span {
+                    start: 0,
+                    end: 2,
+                    style: SpanStyle::Static(callable_style),
+                },
+                Span {
+                    start: 3,
+                    end: 11,
+                    style: SpanStyle::Static(dynamic_file_style),
+                }
+            ]
         );
 
         Ok(())
