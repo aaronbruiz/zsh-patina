@@ -195,6 +195,7 @@ impl DynamicTokenGroup {
         let mut start = self.range.start;
         let mut end = start;
         let mut utf8_buf: Vec<u8> = Vec::new();
+        let mut resolve_tilde = false;
 
         let flush_utf8 = |buf: &mut Vec<u8>, s: &mut String| -> Result<()> {
             if !buf.is_empty() {
@@ -292,18 +293,28 @@ impl DynamicTokenGroup {
 
                     // resolve tilde at the beginning of a string
                     if start == end {
-                        let home = env::var_os("HOME").context("$HOME not set")?;
-                        s.push_str(home.to_str().context("Unable to convert $HOME to string")?);
-                    } else {
-                        s.push_str(c);
+                        resolve_tilde = true;
                     }
+                    s.push_str(c);
 
                     let len = c.chars().count();
                     end += len;
                 }
             }
         }
+
         flush_utf8(&mut utf8_buf, &mut s)?;
+
+        // resolve tilde only if the whole string is a tilde or if it starts
+        // with '~/', because '~foobar', for example, should not be resolved
+        if resolve_tilde && (s == "~" || s.starts_with("~/")) {
+            let home = env::var_os("HOME").context("$HOME not set")?;
+            s.replace_range(
+                0..1,
+                home.to_str().context("Unable to convert $HOME to string")?,
+            );
+        }
+
         if !s.is_empty() {
             result.push((s, start..end));
         }
