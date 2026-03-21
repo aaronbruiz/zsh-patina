@@ -452,9 +452,9 @@ mod tests {
     #[test]
     fn path_with_emoji() -> Result<()> {
         let dir = tempfile::tempdir()?;
-        let test_path = dir.path().join("test😎.txt");
+        let test_path = dir.path().join("test🐑.txt");
         fs::write(test_path, "test contents")?;
-        let dest_path = dir.path().join("😎");
+        let dest_path = dir.path().join("🐑");
         fs::write(dest_path, "test contents")?;
         let pwd = Some(dir.path().to_str().unwrap());
 
@@ -467,7 +467,7 @@ mod tests {
             &SpanStyle::Static(dynamic_file_style.clone()),
         );
 
-        let highlighted = highlighter.highlight(r#"cp😎 "test😎.txt" 😎"#, pwd, |_| true)?;
+        let highlighted = highlighter.highlight(r#"cp🐑 "test🐑.txt" 🐑"#, pwd, |_| true)?;
         assert_eq!(
             highlighted,
             vec![
@@ -475,7 +475,7 @@ mod tests {
                     start: 0,
                     end: 3,
                     style: SpanStyle::Dynamic(DynamicStyle::Callable {
-                        parsed_callable: "cp😎".to_string()
+                        parsed_callable: "cp🐑".to_string()
                     })
                 },
                 Span {

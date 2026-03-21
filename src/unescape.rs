@@ -2,11 +2,6 @@ use anyhow::{Context, Result, bail};
 
 pub trait ZshUnescape {
     fn zsh_unescape_char(&self) -> Result<char>;
-
-    /// If the escape is a hex (`\xHH`) or octal (`\NNN`) escape with a value
-    /// \>= 0x80, return the raw byte. These bytes can be part of multi-byte
-    /// UTF-8 sequences and may need to be accumulated before decoding. Returns
-    /// `None` for all other escapes, including ASCII-range hex/octal.
     fn zsh_unescape_utf8_byte(&self) -> Result<Option<u8>>;
 }
 
