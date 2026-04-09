@@ -475,6 +475,11 @@ mod tests {
                 .highlight(command, Some(&self.pwd), false, |_| true)
         }
 
+        fn highlight_with_autocd(&self, command: &str, autocd: bool) -> Result<Vec<Span>> {
+            self.highlighter
+                .highlight(command, Some(&self.pwd), autocd, |_| true)
+        }
+
         fn touch_file(&self, name: &str) -> Result<PathBuf> {
             let test_path = self.tempdir.path().join(name);
             fs::write(&test_path, "test contents")?;
@@ -1546,6 +1551,99 @@ mod tests {
                 cfg.static_span(33, 34, OPERATOR_LOGICAL_CONTINUE)?,
                 cfg.static_span(35, 38, CONTROL_END)?,
             ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn autocd_bare_directory_enabled() -> Result<()> {
+        let cfg = test_cfg()?;
+        cfg.create_dir("myproject")?;
+
+        // With autocd disabled (default), bare directory is dynamic
+        let highlighted = cfg.highlight("myproject")?;
+        assert_eq!(highlighted, vec![cfg.dynamic_span(0, 9, "myproject")]);
+
+        // With autocd enabled, bare directory is highlighted as local path
+        let highlighted = cfg.highlight_with_autocd("myproject", true)?;
+        assert_eq!(
+            highlighted,
+            vec![cfg.static_span(0, 9, DYNAMIC_CALLABLE_COMMAND)?]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn autocd_bare_directory_disabled() -> Result<()> {
+        let cfg = test_cfg()?;
+        cfg.create_dir("myproject")?;
+
+        // With autocd disabled, bare directory is NOT highlighted as local path
+        let highlighted = cfg.highlight("myproject")?;
+        assert_eq!(highlighted, vec![cfg.dynamic_span(0, 9, "myproject")]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn autocd_explicit_path_always_works() -> Result<()> {
+        let cfg = test_cfg()?;
+        cfg.create_dir("myproject")?;
+
+        // Explicit paths work regardless of autocd
+        let highlighted = cfg.highlight("./myproject")?;
+        assert_eq!(
+            highlighted,
+            vec![cfg.static_span(0, 11, DYNAMIC_CALLABLE_COMMAND)?]
+        );
+
+        let highlighted = cfg.highlight_with_autocd("./myproject", false)?;
+        assert_eq!(
+            highlighted,
+            vec![cfg.static_span(0, 11, DYNAMIC_CALLABLE_COMMAND)?]
+        );
+
+        let highlighted = cfg.highlight_with_autocd("./myproject", true)?;
+        assert_eq!(
+            highlighted,
+            vec![cfg.static_span(0, 11, DYNAMIC_CALLABLE_COMMAND)?]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn autocd_bare_executable_always_dynamic() -> Result<()> {
+        let cfg = test_cfg()?;
+        cfg.touch_script("myscript")?;
+
+        // Bare executable files are always dynamic, even with autocd enabled
+        let highlighted = cfg.highlight("myscript")?;
+        assert_eq!(highlighted, vec![cfg.dynamic_span(0, 8, "myscript")]);
+
+        let highlighted = cfg.highlight_with_autocd("myscript", true)?;
+        assert_eq!(highlighted, vec![cfg.dynamic_span(0, 8, "myscript")]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn autocd_mixed_arguments() -> Result<()> {
+        let cfg = test_cfg()?;
+        cfg.create_dir("mydir")?;
+        cfg.touch_file("myfile.txt")?;
+
+        // With autocd disabled: bare directory in callable position is dynamic
+        let highlighted = cfg.highlight("mydir")?;
+        assert_eq!(highlighted, vec![cfg.dynamic_span(0, 5, "mydir")]);
+
+        // With autocd enabled: bare directory in callable position is static
+        let highlighted = cfg.highlight_with_autocd("mydir", true)?;
+        assert_eq!(
+            highlighted,
+            vec![cfg.static_span(0, 5, DYNAMIC_CALLABLE_COMMAND)?]
         );
 
         Ok(())
