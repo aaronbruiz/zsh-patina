@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use syntect::parsing::{ClearAmount, Scope, ScopeStackOp};
 
 use crate::{
-    path::{PathType, is_path_executable, path_type},
+    path::{CallablePathKind, PathType, callable_path_kind, is_path_executable, path_type},
     unescape::ZshUnescape,
 };
 
@@ -78,8 +78,20 @@ impl DynamicTokenGroup {
         let parsed = self.parse(line, home_dir)?;
         for (p, range) in parsed.into_iter().take(1) {
             log::trace!("Dynamically highlighting callable: {p}");
-            let span_style = if p.contains('/') && is_path_executable(&p, pwd) {
-                log::trace!("Callable `{p}' is executable.");
+            let is_local_callable = if p.contains('/') {
+                // Explicit paths: check if executable
+                is_path_executable(&p, pwd)
+            } else {
+                // Bare names: check if they're local directories
+                if let Some(kind) = callable_path_kind(&p, pwd) {
+                    matches!(kind, CallablePathKind::Directory)
+                } else {
+                    false
+                }
+            };
+
+            let span_style = if is_local_callable {
+                log::trace!("Callable `{p}' is a local path.");
                 if let Some(style) = resolve_static_style(DYNAMIC_CALLABLE_COMMAND, theme) {
                     Some(SpanStyle::Static(style))
                 } else {

@@ -10,6 +10,12 @@ pub enum PathType {
     Directory,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CallablePathKind {
+    Directory,
+    ExecutableFile,
+}
+
 /// Get the metadata of the given path
 /// * If the path is relative, it is resolved against the provided `pwd`.
 /// * If the path does not exist or the user lacks permission to access it, the
@@ -50,6 +56,28 @@ pub fn is_path_executable(path: &str, pwd: &str) -> bool {
         is_executable && path.contains('/')
     } else {
         is_executable
+    }
+}
+
+/// Classify a callable token as a local path (directory or executable file).
+/// Uses a single metadata lookup against `pwd`.
+/// * Returns `Some(CallablePathKind::Directory)` if the token is a directory in `pwd`.
+/// * Returns `Some(CallablePathKind::ExecutableFile)` if the token is an executable file in `pwd`.
+/// * Returns `None` if the token does not exist, is not executable, or is not accessible.
+pub fn callable_path_kind(path: &str, pwd: &str) -> Option<CallablePathKind> {
+    let metadata = metadata(path, pwd)?;
+    let is_executable = (metadata.permissions().mode() & 0o111) != 0;
+
+    if metadata.is_dir() {
+        if is_executable {
+            Some(CallablePathKind::Directory)
+        } else {
+            None
+        }
+    } else if is_executable {
+        Some(CallablePathKind::ExecutableFile)
+    } else {
+        None
     }
 }
 
