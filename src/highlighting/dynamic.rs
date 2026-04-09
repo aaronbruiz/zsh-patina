@@ -58,10 +58,11 @@ impl DynamicTokenGroup {
         pwd: &str,
         home_dir: &str,
         theme: &Theme,
+        autocd: bool,
     ) -> Result<Vec<Span>> {
         match self.dynamic_type {
             DynamicType::Unknown => Ok(Vec::new()), // nothing to do
-            DynamicType::Callable => self.highlight_callable(line, pwd, home_dir, theme),
+            DynamicType::Callable => self.highlight_callable(line, pwd, home_dir, theme, autocd),
             DynamicType::Arguments => self.highlight_arguments(line, pwd, home_dir, theme),
         }
     }
@@ -72,6 +73,7 @@ impl DynamicTokenGroup {
         pwd: &str,
         home_dir: &str,
         theme: &Theme,
+        autocd: bool,
     ) -> Result<Vec<Span>> {
         let mut result = Vec::new();
 
@@ -81,13 +83,16 @@ impl DynamicTokenGroup {
             let is_local_callable = if p.contains('/') {
                 // Explicit paths: check if executable
                 is_path_executable(&p, pwd)
-            } else {
-                // Bare names: check if they're local directories
+            } else if autocd {
+                // Bare names: only check if autocd is enabled
                 if let Some(kind) = callable_path_kind(&p, pwd) {
                     matches!(kind, CallablePathKind::Directory)
                 } else {
                     false
                 }
+            } else {
+                // autocd disabled: bare names are not local callables
+                false
             };
 
             let span_style = if is_local_callable {

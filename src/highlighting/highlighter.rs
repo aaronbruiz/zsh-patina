@@ -235,7 +235,7 @@ impl Highlighter {
         &self.callable_choices
     }
 
-    pub fn highlight<P>(&self, command: &str, pwd: Option<&str>, predicate: P) -> Result<Vec<Span>>
+    pub fn highlight<P>(&self, command: &str, pwd: Option<&str>, autocd: bool, predicate: P) -> Result<Vec<Span>>
     where
         P: Fn(&Range<usize>) -> bool,
     {
@@ -295,7 +295,7 @@ impl Highlighter {
                 for g in dynamic_builder.build(&ops, byte_offset) {
                     if self.should_highlight_dynamic(&g.dynamic_type)
                         && let Ok(group_spans) =
-                            g.highlight(command, pwd, &self.home_dir, &self.theme)
+                            g.highlight(command, pwd, &self.home_dir, &self.theme, autocd)
                     {
                         mixins.extend(group_spans);
                     }
@@ -311,7 +311,7 @@ impl Highlighter {
         {
             for g in dynamic_builder.finish(byte_offset) {
                 if self.should_highlight_dynamic(&g.dynamic_type)
-                    && let Ok(group_spans) = g.highlight(command, pwd, &self.home_dir, &self.theme)
+                    && let Ok(group_spans) = g.highlight(command, pwd, &self.home_dir, &self.theme, autocd)
                 {
                     mixins.extend(group_spans);
                 }
@@ -472,7 +472,7 @@ mod tests {
     impl TestCfg {
         fn highlight(&self, command: &str) -> Result<Vec<Span>> {
             self.highlighter
-                .highlight(command, Some(&self.pwd), |_| true)
+                .highlight(command, Some(&self.pwd), false, |_| true)
         }
 
         fn touch_file(&self, name: &str) -> Result<PathBuf> {

@@ -222,6 +222,7 @@ fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> R
     let mut yank_start = None;
     let mut yank_end = None;
     let mut zle_highlight_paste = None;
+    let mut autocd = false;
 
     log::trace!("Received header: {}", header.trim_ascii_end());
 
@@ -261,6 +262,7 @@ fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> R
 
             "pwd" => pwd = Some(decode_string(value)),
             "cmd" => cmd = Some(value),
+            "autocd" => autocd = value == "1",
 
             "region_active" => region_active = Some(value),
             "mark" => {
@@ -410,7 +412,7 @@ fn handle_connection(mut stream: UnixStream, highlighter: Arc<Highlighter>) -> R
         .min(cursor.saturating_add(term_cols * term_rows));
 
     // perform highlighting
-    let result = highlighter.highlight(&lines, pwd.as_deref(), |range| {
+    let result = highlighter.highlight(&lines, pwd.as_deref(), autocd, |range| {
         // skip spans in the pre-buffer
         if range.end <= pre_buffer_total_len {
             return false;
@@ -698,7 +700,7 @@ fn start_daemon_internal(
     // background task to not delay the main thread
     let init_highlighter = Arc::clone(&highlighter);
     pool.spawn(move || {
-        let _ = init_highlighter.highlight("echo Welcome to zsh-patina!", None, |_| true);
+        let _ = init_highlighter.highlight("echo Welcome to zsh-patina!", None, false, |_| true);
     });
 
     // bind the Unix domain socket

@@ -142,7 +142,9 @@ _zsh_patina() {
 
     {
         # build header
-        local header="ver=<{version}> term_cols=$COLUMNS term_rows=$LINES cursor=$CURSOR pre_buffer_line_count=$pre_count buffer_line_count=$count pwd=$_ZSH_PATINA_ENCODED_PWD"
+        local autocd_flag=0
+        [[ -o autocd ]] && autocd_flag=1
+        local header="ver=<{version}> term_cols=$COLUMNS term_rows=$LINES cursor=$CURSOR pre_buffer_line_count=$pre_count buffer_line_count=$count pwd=$_ZSH_PATINA_ENCODED_PWD autocd=$autocd_flag"
 
         if (( $+REGION_ACTIVE )) && (( REGION_ACTIVE != 0 )); then
             _zsh_patina_encode_string "${${zle_highlight[(r)region:*]-}#*:}"
