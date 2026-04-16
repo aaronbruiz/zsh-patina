@@ -80,10 +80,11 @@ impl DynamicTokenGroup {
         let parsed = self.parse(line, home_dir)?;
         for (p, range) in parsed.into_iter().take(1) {
             log::trace!("Dynamically highlighting callable: {p}");
-            let is_local_callable = if p.contains('/') {
+            let is_local_callable =
+                if p == "." || p == ".." || (p.contains('/') {
                 // Explicit paths: check if executable
                 is_path_executable(&p, pwd)
-            } else if autocd {
+            } else if autocd) {
                 // Bare names: only check if autocd is enabled
                 if let Some(kind) = callable_path_kind(&p, pwd) {
                     matches!(kind, CallablePathKind::Directory)
@@ -96,17 +97,17 @@ impl DynamicTokenGroup {
             };
 
             let span_style = if is_local_callable {
-                log::trace!("Callable `{p}' is a local path.");
-                if let Some(style) = resolve_static_style(DYNAMIC_CALLABLE_COMMAND, theme) {
-                    Some(SpanStyle::Static(style))
+                    log::trace!("Callable `{p}' is a local path.");
+                    if let Some(style) = resolve_static_style(DYNAMIC_CALLABLE_COMMAND, theme) {
+                        Some(SpanStyle::Static(style))
+                    } else {
+                        resolve_static_style(CALLABLE, theme).map(SpanStyle::Static)
+                    }
                 } else {
-                    resolve_static_style(CALLABLE, theme).map(SpanStyle::Static)
-                }
-            } else {
-                Some(SpanStyle::Dynamic(DynamicStyle::Callable {
-                    parsed_callable: p,
-                }))
-            };
+                    Some(SpanStyle::Dynamic(DynamicStyle::Callable {
+                        parsed_callable: p,
+                    }))
+                };
 
             if let Some(span_style) = span_style {
                 result.push(Span {

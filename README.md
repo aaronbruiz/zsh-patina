@@ -18,12 +18,15 @@ Besides normal static highlighting, zsh-patina is able to dynamically detect whe
   * [Homebrew (for macOS)](#homebrew-for-macos)
   * [Cargo (for Rust developers)](#cargo-for-rust-developers)
   * [Zinit (for Zinit users)](#zinit-for-zinit-users)
-  * [AUR (for Arch Linux users)](#aur-for-arch-linux-users)
+  * [`.deb` package (for Debian/Ubuntu)](#deb-package-for-debianubuntu)
+  * [AUR (for Arch Linux)](#aur-for-arch-linux)
   * [flake.nix (for Nix users)](#flakenix-for-nix-users)
+  * [Scoop (for Windows)](#scoop-for-windows)
   * [Pre-compiled binaries (for everyone)](#pre-compiled-binaries-for-everyone)
   * [Build from source (for the brave ones)](#build-from-source-for-the-brave-ones)
 * [Configuration](#configuration)
 * [Theming](#theming)
+* [Completions (optional)](#completions-optional)
 * [Benchmarks](#benchmarks)
 * [Troubleshooting](#troubleshooting)
 * [How to remove the plugin](#how-to-remove-the-plugin)
@@ -82,7 +85,29 @@ zinit ice as"program" from"gh-r" pick"zsh-patina-*/zsh-patina" atload'eval "$(zs
 zinit light michel-kraemer/zsh-patina
 ```
 
-### AUR (for Arch Linux users)
+### `.deb` package (for Debian/Ubuntu)
+
+1. Visit https://github.com/michel-kraemer/zsh-patina/releases/latest and download the appropriate `.deb` package for your system.
+
+2. Install the package. For example:
+
+   ```shell
+   sudo dpkg -i zsh-patina_1.4.0_amd64.deb
+   ```
+
+3. Initialize the plugin at the end of your `.zshrc` file:
+
+   ```shell
+   echo 'eval "$(zsh-patina activate)"' >> ~/.zshrc
+   ```
+
+4. Restart your terminal, or run:
+
+   ```shell
+   exec zsh
+   ```
+
+### AUR (for Arch Linux)
 
 1. Install zsh-patina:
 
@@ -144,15 +169,52 @@ A flake is provided to make the executable the plugin requires available in `/ni
    exec zsh
    ```
 
+### Scoop (for Windows)
+
+1. Install Zsh. This can be done either through [MSYS2](https://www.msys2.org/) or [Cygwin](https://cygwin.com/), which can be installed via Scoop like this:
+
+   ```shell
+   scoop bucket add main
+
+   # For MSYS2
+   scoop install main/msys2
+
+   # For Cygwin
+   scoop install main/cygwin
+   ```
+
+   Zsh can then be installed with the corresponding package manager.
+
+2. Install zsh-patina:
+
+   ```shell
+   scoop bucket add extras
+   scoop install extras/zsh-patina
+   ```
+
+   zsh-patina is automatically added to your PATH upon install.
+
+3. Initialize the plugin at the end of your `.zshrc` file:
+
+   ```shell
+   echo 'eval "$(zsh-patina activate)"' >> ~/.zshrc
+   ```
+
+4. Restart your terminal, or run:
+
+   ```shell
+   exec zsh
+   ```
+
 ### Pre-compiled binaries (for everyone)
 
-1. Visit https://github.com/michel-kraemer/zsh-patina/releases/latest and download the appropriate archive for your system. There are binaries for Linux and macOS.
+1. Visit https://github.com/michel-kraemer/zsh-patina/releases/latest and download the appropriate archive for your system. There are binaries for Linux, macOS, and Windows (MSYS2/Cygwin).
 
 2. Extract the archive to an arbitrary directory. For example, if you want to extract it to `~/.zsh-patina`:
 
    ```shell
    mkdir ~/.zsh-patina
-   tar xfz zsh-patina-v1.3.1-aarch64-apple-darwin.tar.gz -C ~/.zsh-patina --strip-components 1
+   tar xfz zsh-patina-v1.4.0-aarch64-apple-darwin.tar.gz -C ~/.zsh-patina --strip-components 1
    ```
 
 3. Initialize the plugin at the end of your `.zshrc` file:
@@ -200,6 +262,7 @@ A flake is provided to make the executable the plugin requires available in `/ni
 
 zsh-patina can be configured through an optional configuration file at the following locations (in order of precedence):
 
+* `$ZSH_PATINA_CONFIG_PATH` (if set)
 * `$XDG_CONFIG_HOME/zsh-patina/config.toml` (if `$XDG_CONFIG_HOME` is set)
 * `~/.config/zsh-patina/config.toml`
 
@@ -271,6 +334,7 @@ The following built-in themes are available:
 | `catppuccin-macchiato` | A soothing dark theme with vibrant tones. Based on [Catppuccin Macchiato](https://catppuccin.com/palette#flavor-macchiato). |
 | `catppuccin-mocha` | A soothing warm-toned dark theme. Based on [Catppuccin Mocha](https://catppuccin.com/palette#flavor-mocha). |
 | `classic` | ANSI color theme inspired by [fast-syntax-highlighting's default theme](https://github.com/zdharma-continuum/fast-syntax-highlighting/blob/master/themes/default.ini).
+| `kanagawa` | Inspired by the colors of the famous painting by Katsushika Hokusai. Based on [kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim). |
 | `lavender` | A variant with magenta/lavender tones. |
 | `nord` | An arctic, north-bluish color palette. Based on [Nord](https://www.nordtheme.com/). |
 | `simple` | A minimal theme with fewer colors. |
@@ -400,6 +464,29 @@ extends = "nord"
 
 # ... or extend another custom theme
 # extends = "file:/path/to/another/theme.toml"
+```
+
+## Completions (optional)
+
+> Shell completions are installed automatically by the [`.deb` package](#deb-package-for-debianubuntu) and by [Homebrew](#homebrew-for-macos).
+
+If you like, you can generate shell completions for zsh-patina with the following command:
+
+```shell
+zsh-patina completion
+```
+
+The command prints out a Zsh script that should be sourced as follows:
+
+```shell
+eval "$(/path/to/zsh-patina completion)"
+```
+
+Alternatively, you can permanently install the script to your site-functions directory:
+
+```shell
+zsh-patina completion > /usr/local/share/zsh/site-functions/_zsh-patina
+chmod +x /usr/local/share/zsh/site-functions/_zsh-patina
 ```
 
 ## Benchmarks
